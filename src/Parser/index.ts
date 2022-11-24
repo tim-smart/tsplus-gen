@@ -10,12 +10,14 @@ import {
 } from "tsplus-gen/common.js"
 import Ts from "typescript"
 import * as Path from "path"
+import { z } from "zod"
 
-export interface ParserConfig {
-  moduleName: string
-  baseDir: string
-  tsconfig: string
-}
+export const TsProject = z.object({
+  moduleName: z.string(),
+  baseDir: z.string(),
+  tsconfig: z.string(),
+})
+export type TsConfig = z.infer<typeof TsProject>
 
 export class TsconfigParseError {
   readonly _tag = "TsconfigParseError"
@@ -37,7 +39,15 @@ const compilerOptions = (path: string) =>
     ),
   )
 
-const makeParser = ({ baseDir, moduleName, tsconfig }: ParserConfig) =>
+const rootNames = (baseDir: string) =>
+  pipe(
+    Fs.walk(baseDir),
+    Stream.filter((a) => a.endsWith(".ts")),
+    Stream.runCollect,
+    Effect.map(Collection.toArray),
+  )
+
+const makeParser = ({ baseDir, moduleName, tsconfig }: TsConfig) =>
   Effect.gen(function* ($) {
     const options = yield* $(compilerOptions(tsconfig))
     const program = Ts.createProgram({
@@ -47,250 +57,243 @@ const makeParser = ({ baseDir, moduleName, tsconfig }: ParserConfig) =>
 
     const checker = program.getTypeChecker()
 
-    return { program, checker, baseDir, moduleName }
+    const sourceFiles = program
+      .getSourceFiles()
+      .filter((a) => !a.isDeclarationFile)
+
+    const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
+      checker.getExportsOfModule(checker.getSymbolAtLocation(sourceFile)!)
+
+    const getSymbolType = (symbol: Ts.Symbol) =>
+      checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration!)
+
+    const getReturnType = (signature: Ts.Signature) =>
+      checker.getReturnTypeOfSignature(signature)
+
+    const exported = sourceFiles.flatMap(exportsFromSourceFile)
+
+    const isGetter = (signature: Ts.Signature) =>
+      pipe(
+        Maybe.fromPredicate(signature.getParameters(), (a) => a.length === 1),
+        Maybe.map((a) => a[0]),
+        Maybe.filter((a) => ["self", "_self"].includes(a.name)),
+        Maybe.isSome,
+      )
+
+    const fluentTypeInformation = (signature: Ts.Signature) => {
+      return pipe(
+        Maybe.struct({
+          firstParamType: pipe(
+            Maybe.fromPredicate(signature.getParameters(), (a) => a.length > 1),
+            Maybe.map((a) => a[0]),
+            Maybe.map(getSymbolType),
+            Maybe.flatMap(getTypeInformation),
+          ),
+          returnType: pipe(getReturnType(signature), getTypeInformation),
+        }),
+        Maybe.filter(
+          ({ firstParamType, returnType }) =>
+            firstParamType.typeName === returnType.typeName,
+        ),
+      )
+    }
+
+    const isPipeableReturnType = (type: Ts.Type) =>
+      type.getCallSignatures().some(isGetter)
+
+    const getSourceFileFromType = (type: Ts.Type) =>
+      type.symbol.valueDeclaration!.getSourceFile()
+
+    const getModuleFromSourceFile = (file: Ts.SourceFile) =>
+      pipe(
+        file.fileName.includes("/node_modules/")
+          ? getExternalModulePath(file.fileName)
+          : getInternalModulePath(file.fileName),
+        (path) => path.replace(/\.tsx?$/, ".js"),
+      )
+    const getNamespaceFromSourceFile = (file: Ts.SourceFile) =>
+      getModuleFromSourceFile(file)
+        .replace(/\/definition\/.*/, "")
+        .replace(/^@/, "")
+        .replace(/\.js$/, "")
+        .replace(/\/index$/, "")
+
+    const getExternalModulePath = (file: string) =>
+      file.match(/.*\/node_modules\/(.*)/)![1]
+
+    const getInternalModulePath = (file: string) =>
+      `${moduleName}/${Path.relative(baseDir, file)}`
+
+    const getTypeInformation = (type: Ts.Type) =>
+      pipe(
+        Maybe.fromNullable(type?.symbol?.name),
+        Maybe.map((name) => {
+          const sourceFile = getSourceFileFromType(type)
+          return {
+            type,
+            name,
+            sourceFile,
+            typeName: getTargetString(sourceFile, name),
+          }
+        }),
+      )
+
+    const getTargetString = (sourceFile: Ts.SourceFile, name: string) => {
+      const namespace = getNamespaceFromSourceFile(sourceFile)
+      const baseName = Path.basename(namespace)
+
+      if (name === baseName) {
+        return namespace
+      } else if (name.startsWith(baseName)) {
+        return `${namespace}.${name.slice(baseName.length)}`
+      }
+
+      return `${namespace}.${name}`
+    }
+
+    const exportedWithDeclarations = exported.map((symbol) => {
+      const node = symbol.getDeclarations()![0]
+      const type = checker.getTypeOfSymbolAtLocation(symbol, node)
+      const sourceFile = node.getSourceFile()
+      const module = getModuleFromSourceFile(sourceFile)
+      const typeName = getTargetString(sourceFile, symbol.name)
+
+      return {
+        symbol,
+        node,
+        type,
+        sourceFile,
+        module,
+        typeName,
+      }
+    })
+
+    const filterExports = <K extends string, A extends Ts.Node>(
+      kind: K,
+      f: (a: Ts.Node) => a is A,
+    ) =>
+      exportedWithDeclarations
+        .filter((a) => f(a.node))
+        .map((a) => ({
+          ...a,
+          kind,
+          node: a.node as any as A,
+        }))
+
+    const classes = filterExports("class", Ts.isClassDeclaration)
+    const variables = filterExports("const", Ts.isVariableDeclaration)
+    const functions = filterExports("function", Ts.isFunctionDeclaration)
+    const interfaces = filterExports("interface", Ts.isInterfaceDeclaration)
+    const typeAliases = filterExports("type", Ts.isTypeAliasDeclaration)
+
+    const callables = [...variables, ...functions]
+      .flatMap((a) =>
+        a.type.getCallSignatures().map((callSignature) => ({
+          ...a,
+          callSignature,
+        })),
+      )
+      .map((a) => ({
+        ...a,
+        returnType: getReturnType(a.callSignature),
+      }))
+
+    const getters = callables
+      .filter((a) => isGetter(a.callSignature))
+      .flatMap((a) =>
+        pipe(
+          a.callSignature.getParameters()[0],
+          getSymbolType,
+          getTypeInformation,
+          Maybe.fold(
+            () => [],
+            (self) => [
+              {
+                ...a,
+                typeName: self.typeName,
+              },
+            ],
+          ),
+        ),
+      )
+
+    const fluents = callables.flatMap((a) =>
+      pipe(
+        fluentTypeInformation(a.callSignature),
+        Maybe.fold(
+          () => [],
+          (info) => ({
+            ...a,
+            typeName: info.firstParamType.typeName,
+          }),
+        ),
+      ),
+    )
+
+    const pipeables = callables
+      .filter((a) => isPipeableReturnType(a.returnType))
+      .map((a) => ({
+        ...a,
+        returnCallSignature: a.returnType.getCallSignatures().find(isGetter)!,
+      }))
+      .flatMap((a) =>
+        pipe(
+          a.returnCallSignature.getParameters()[0],
+          getSymbolType,
+          getTypeInformation,
+          Maybe.fold(
+            () => [],
+            (self) => [
+              {
+                ...a,
+                typeName: self.typeName,
+              },
+            ],
+          ),
+        ),
+      )
+
+    // Constructors
+    const statics = callables
+      .filter(
+        (a) =>
+          Maybe.isNone(fluentTypeInformation(a.callSignature)) &&
+          a.returnType.getCallSignatures().length === 0,
+      )
+      .flatMap((a) =>
+        pipe(
+          a.returnType,
+          getTypeInformation,
+          Maybe.fold(
+            () => [],
+            (self) => [
+              {
+                ...a,
+                typeName: self.typeName,
+              },
+            ],
+          ),
+        ),
+      )
+
+    const types = [...classes, ...interfaces, ...typeAliases]
+
+    return {
+      fluents: Stream.fromCollection(fluents),
+      getters: Stream.fromCollection(getters),
+      pipeables: Stream.fromCollection(pipeables),
+      statics: Stream.fromCollection(statics),
+      types: Stream.fromCollection(types),
+    }
   })
 
 export interface Parser
   extends Effect.Effect.Success<ReturnType<typeof makeParser>> {}
 export const Parser = Tag.Tag<Parser>()
-export const make = (a: ParserConfig) =>
-  pipe(makeParser(a), Layer.fromEffect(Parser))
+export const make = (a: TsConfig) => Layer.scoped(Parser, makeParser(a))
 
-const rootNames = (baseDir: string) =>
-  pipe(
-    Fs.walk(baseDir),
-    Stream.filter((a) => a.endsWith(".ts")),
-    Stream.runCollect,
-    Effect.map(Collection.toArray),
-  )
-
-const sourceFiles = Stream.serviceWithStream(Parser, ({ program }) =>
-  pipe(
-    Stream.fromCollection(program.getSourceFiles()),
-    Stream.filter((a) => !a.isDeclarationFile),
-  ),
-)
-
-const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
-  Stream.serviceWithStream(Parser, ({ checker }) =>
-    Stream.fromCollection(
-      checker.getExportsOfModule(checker.getSymbolAtLocation(sourceFile)!),
-    ),
-  )
-
-const getSymbolType = (symbol: Ts.Symbol) =>
-  Effect.serviceWith(Parser, ({ checker }) =>
-    checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration!),
-  )
-
-const getReturnType = (signature: Ts.Signature) =>
-  Effect.serviceWith(Parser, ({ checker }) =>
-    checker.getReturnTypeOfSignature(signature),
-  )
-
-const exported = pipe(sourceFiles, Stream.flatMap(exportsFromSourceFile))
-
-const exportedWithDeclarations = Stream.serviceWithStream(
-  Parser,
-  ({ checker }) =>
-    pipe(
-      exported,
-      Stream.map((symbol) => ({
-        symbol,
-        node: symbol.getDeclarations()![0],
-      })),
-      Stream.map((a) => ({
-        ...a,
-        type: checker.getTypeOfSymbolAtLocation(a.symbol, a.node),
-        sourceFile: a.node.getSourceFile(),
-      })),
-      Stream.mapEffect((a) =>
-        pipe(
-          Effect.struct({
-            namespace: getNamespaceFromSourceFile(a.sourceFile),
-            typeName: getTargetString(a.sourceFile, a.symbol.name),
-          }),
-          Effect.map((b) => ({
-            ...a,
-            ...b,
-          })),
-        ),
-      ),
-    ),
-)
-
-const filterExports = <K extends string, A extends Ts.Node>(
-  kind: K,
-  f: (a: Ts.Node) => a is A,
-) =>
-  pipe(
-    exportedWithDeclarations,
-    Stream.filter((a) => f(a.node)),
-    Stream.map((a) => ({
-      ...a,
-      kind,
-      node: a.node as any as A,
-    })),
-  )
-
-const classes = filterExports("class", Ts.isClassDeclaration)
-const variables = filterExports("const", Ts.isVariableDeclaration)
-const functions = filterExports("function", Ts.isFunctionDeclaration)
-const interfaces = filterExports("interface", Ts.isInterfaceDeclaration)
-const typeAliases = filterExports("type", Ts.isTypeAliasDeclaration)
-
-// Callables
-const callables = pipe(
-  variables,
-  Stream.merge(functions),
-  Stream.bind("callSignature", ({ type }) =>
-    Stream.fromCollection(type.getCallSignatures()),
-  ),
-  Stream.bind("returnType", ({ callSignature }) =>
-    Stream.fromEffect(getReturnType(callSignature)),
-  ),
-)
-
-const isFluentCandidate = (signature: Ts.Signature) =>
-  pipe(
-    Maybe.fromNullable(signature.getParameters()[0]),
-    Maybe.filter((a) => ["self", "_self"].includes(a.name)),
-    Maybe.isSome,
-  )
-
-const isGetter = (signature: Ts.Signature) =>
-  isFluentCandidate(signature) && signature.getParameters().length === 1
-
-const isFluent = (signature: Ts.Signature) =>
-  isFluentCandidate(signature) && signature.getParameters().length > 1
-
-const isPipeableReturnType = (type: Ts.Type) =>
-  type.getCallSignatures().some(isGetter)
-
-export const getters = pipe(
-  callables,
-  Stream.filter((a) => isGetter(a.callSignature)),
-  Stream.mapEffect((a) =>
-    pipe(
-      getSymbolType(a.callSignature.getParameters()[0]),
-      Effect.flatMap(getTypeInformation),
-      Effect.map((self) => ({
-        ...a,
-        typeName: self.typeName,
-      })),
-    ),
-  ),
-)
-
-export const fluents = pipe(
-  callables,
-  Stream.filter((a) => isFluent(a.callSignature)),
-  Stream.mapEffect((a) =>
-    pipe(
-      getSymbolType(a.callSignature.getParameters()[0]),
-      Effect.flatMap(getTypeInformation),
-      Effect.map((self) => ({
-        ...a,
-        typeName: self.typeName,
-      })),
-    ),
-  ),
-)
-
-export const pipeables = pipe(
-  callables,
-  Stream.filter((a) => isPipeableReturnType(a.returnType)),
-  Stream.bind("returnCallSignature", (a) =>
-    Stream.sync(() => a.returnType.getCallSignatures().find(isGetter)!),
-  ),
-  Stream.mapEffect((a) =>
-    pipe(
-      getSymbolType(a.returnCallSignature.getParameters()[0]),
-      Effect.flatMap(getTypeInformation),
-      Effect.map((self) => ({
-        ...a,
-        typeName: self.typeName,
-      })),
-    ),
-  ),
-)
-
-export const statics = pipe(
-  callables,
-  Stream.filter(
-    (a) =>
-      !isFluentCandidate(a.callSignature) &&
-      a.returnType.getCallSignatures().length === 0 &&
-      !!a.returnType.symbol,
-  ),
-  Stream.mapEffect((a) =>
-    pipe(
-      getTypeInformation(a.returnType),
-      Effect.map((self) => ({
-        ...a,
-        typeName: self.typeName,
-      })),
-    ),
-  ),
-)
-
-export const types = pipe(
-  classes,
-  Stream.merge(interfaces),
-  Stream.merge(typeAliases),
-)
-
-const getSourceFileFromType = (type: Ts.Type) =>
-  type.symbol.valueDeclaration!.getSourceFile()
-
-const getNamespaceFromSourceFile = (file: Ts.SourceFile) =>
-  pipe(
-    file.fileName.includes("/node_modules/")
-      ? getExternalModulePath(file.fileName)
-      : getInternalModulePath(file.fileName),
-    Effect.map((path) =>
-      path
-        .replace(/\/definition\/.*/, "")
-        .replace(/^@/, "")
-        .replace(/\.(ts|js)x?$/, "")
-        .replace(/\/index$/, ""),
-    ),
-  )
-
-const getExternalModulePath = (file: string) =>
-  Effect.sync(() => file.match(/.*\/node_modules\/(.*)/)![1])
-
-const getInternalModulePath = (file: string) =>
-  Effect.serviceWith(
-    Parser,
-    ({ baseDir, moduleName }) =>
-      `${moduleName}/${Path.relative(baseDir, file)}`,
-  )
-
-const getTypeInformation = (type: Ts.Type) =>
-  pipe(
-    Effect.sync(() => ({
-      type,
-      name: type.symbol.name,
-      sourceFile: getSourceFileFromType(type),
-    })),
-    Effect.bind("typeName", (a) => getTargetString(a.sourceFile, a.name)),
-  )
-
-const getTargetString = (sourceFile: Ts.SourceFile, name: string) =>
-  pipe(
-    getNamespaceFromSourceFile(sourceFile),
-    Effect.map((namespace) => ({
-      namespace,
-      baseName: Path.basename(namespace),
-    })),
-    Effect.map((a) => {
-      if (name === a.baseName) {
-        return a.namespace
-      } else if (name.startsWith(a.baseName)) {
-        return `${a.namespace}.${name.slice(a.baseName.length)}`
-      }
-
-      return `${a.namespace}.${name}`
-    }),
-  )
+export const fluents = Stream.serviceWithStream(Parser, (a) => a.fluents)
+export const getters = Stream.serviceWithStream(Parser, (a) => a.getters)
+export const pipeables = Stream.serviceWithStream(Parser, (a) => a.pipeables)
+export const statics = Stream.serviceWithStream(Parser, (a) => a.statics)
+export const types = Stream.serviceWithStream(Parser, (a) => a.types)

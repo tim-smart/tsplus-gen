@@ -4,7 +4,12 @@ const nonExportedConstant = 123
 
 export interface TestInterface {}
 
-export class TestClass {}
+export class TestClass<A> {}
+
+export const flatMap =
+  <A, B>(f: (a: A) => B) =>
+  (_self: TestClass<A>) =>
+    new TestClass<B>()
 
 export const testConstant = 123
 
@@ -30,6 +35,8 @@ export function testFluent<R, E, A, B>(
 ) {
   return Effect.map(f)(self)
 }
+
+export const testAcquireRelease = Effect.acquireRelease
 
 export function testConstructor<A>(a: A) {
   return Effect.sync(() => a)

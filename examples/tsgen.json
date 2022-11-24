@@ -1,0 +1,21 @@
+{
+  "project": {
+    "moduleName": "@tsplus-example/core",
+    "baseDir": "examples",
+    "tsconfig": "tsconfig.json"
+  },
+  "namespaces": [
+    {
+      "name": "tsplus-example/core",
+      "fluentSuffix": "",
+      "staticSuffix": "",
+      "pipeableSuffix": ""
+    },
+    {
+      "name": "effect/core/io",
+      "fluentSuffix": ".Ops",
+      "staticSuffix": ".Ops",
+      "pipeableSuffix": ".Aspects"
+    }
+  ]
+}

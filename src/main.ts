@@ -1,27 +1,19 @@
-import { Effect, Layer, Parser, pipe, Serializer } from "./common.js"
+import { Effect, Parser, pipe, Serializer } from "./common.js"
+import { fromFile } from "./Config/index.js"
 import { FsLive } from "./Fs/index.js"
 
-const ParserLive = Parser.make({
-  moduleName: "tsplus-gen-example",
-  baseDir: "./examples",
-  tsconfig: "./tsconfig.json",
-})
-
-const SerializerConfigLive = Serializer.makeConfig({
-  fluentSuffix: ".Ops",
-  staticSuffix: ".Ops",
-  pipeableSuffix: ".Aspects",
-})
-
-const EnvLive = pipe(
-  FsLive,
-  Layer.provideTo(ParserLive),
-  Layer.merge(SerializerConfigLive),
-)
-
 const main = pipe(
-  Serializer.definitions,
-  Effect.scoped,
+  fromFile(process.argv[2]),
+  Effect.flatMap((config) => {
+    const ParserLive = Parser.make(config.project)
+    const SerializerLive = Serializer.makeLayer(config.namespaces)
+
+    return pipe(
+      Serializer.definitions,
+      Effect.provideSomeLayer(ParserLive),
+      Effect.provideSomeLayer(SerializerLive),
+    )
+  }),
   Effect.tap((a) =>
     Effect.sync(() => {
       console.log(JSON.stringify(a, null, 2))
@@ -29,6 +21,6 @@ const main = pipe(
   ),
 )
 
-pipe(main, Effect.provideLayer(EnvLive), Effect.unsafeRunPromise).catch(
+pipe(main, Effect.provideLayer(FsLive), Effect.unsafeRunPromise).catch(
   console.error,
 )

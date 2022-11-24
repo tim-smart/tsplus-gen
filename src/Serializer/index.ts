@@ -1,14 +1,17 @@
-import { Layer, Parser, pipe, Stream, Tag } from "tsplus-gen/common.js"
+import { Effect, Layer, Parser, pipe, Stream, Tag } from "tsplus-gen/common.js"
 import { Symbol } from "typescript"
+import { z } from "zod"
 
-export interface SerializerConfig {
-  fluentSuffix: string
-  pipeableSuffix: string
-  staticSuffix: string
-}
-export const SerializerConfig = Tag.Tag<SerializerConfig>()
-export const makeConfig = (a: SerializerConfig) =>
-  Layer.fromValue(SerializerConfig, () => a)
+export const Namespace = z.object({
+  name: z.string(),
+  fluentSuffix: z.string(),
+  pipeableSuffix: z.string(),
+  staticSuffix: z.string(),
+})
+export type Namespace = z.infer<typeof Namespace>
+
+export const SerializerConfig = z.array(Namespace)
+export type SerializerConfig = z.infer<typeof SerializerConfig>
 
 export type DefinitionKind =
   | "const"
@@ -36,20 +39,28 @@ type DefinitionTuple = readonly [module: string, definition: Definition]
 interface ParserOutput {
   kind: DefinitionKind
   typeName: string
-  namespace: string
+  module: string
   symbol: Symbol
 }
 
-const makeDefinitions = <R, E, A extends ParserOutput>(
-  self: Stream.Stream<R, E, A>,
-  extensions: (a: ParserOutput, config: SerializerConfig) => Extension[],
-) =>
-  Stream.serviceWithStream(SerializerConfig, (config) =>
+const make = (namespaces: SerializerConfig) => {
+  const makeDefinitions = <R, E, A extends ParserOutput>(
+    self: Stream.Stream<R, E, A>,
+    extensions: (a: ParserOutput, config: Namespace) => Extension[],
+  ) =>
     pipe(
       self,
       Stream.map(
-        (a): DefinitionTuple => [
-          a.namespace,
+        (a) =>
+          [
+            a,
+            namespaces.find((ns) => a.typeName.startsWith(ns.name))!,
+          ] as const,
+      ),
+      Stream.filter(([, ns]) => !!ns),
+      Stream.map(
+        ([a, config]): DefinitionTuple => [
+          a.module,
           {
             definitionName: a.symbol.name,
             definitionKind: a.kind,
@@ -57,55 +68,67 @@ const makeDefinitions = <R, E, A extends ParserOutput>(
           },
         ],
       ),
+    )
+
+  const fluents = makeDefinitions(Parser.fluents, (a, c) => [
+    { kind: "fluent", typeName: a.typeName, name: a.symbol.name },
+    {
+      kind: "static",
+      typeName: `${a.typeName}${c.fluentSuffix}`,
+      name: a.symbol.name,
+    },
+  ])
+  const getters = makeDefinitions(Parser.getters, (a, c) => [
+    { kind: "getter", typeName: a.typeName, name: a.symbol.name },
+    {
+      kind: "static",
+      typeName: `${a.typeName}${c.fluentSuffix}`,
+      name: a.symbol.name,
+    },
+  ])
+  const pipeables = makeDefinitions(Parser.pipeables, (a, c) => [
+    { kind: "pipeable", typeName: a.typeName, name: a.symbol.name },
+    {
+      kind: "static",
+      typeName: `${a.typeName}${c.pipeableSuffix}`,
+      name: a.symbol.name,
+    },
+  ])
+  const statics = makeDefinitions(Parser.statics, (a, c) => [
+    {
+      kind: "static",
+      typeName: `${a.typeName}${c.staticSuffix}`,
+      name: a.symbol.name,
+    },
+  ])
+  const types = makeDefinitions(Parser.types, (a) => [
+    { kind: "type", typeName: a.typeName },
+  ])
+
+  const definitions = pipe(
+    fluents,
+    Stream.merge(getters),
+    Stream.merge(pipeables),
+    Stream.merge(statics),
+    Stream.merge(types),
+    Stream.runFold(
+      {} as Record<string, Definition[]>,
+      (acc, [namespace, definition]) => ({
+        ...acc,
+        [namespace]: [...(acc[namespace] || []), definition],
+      }),
     ),
   )
 
-const fluents = makeDefinitions(Parser.fluents, (a, c) => [
-  { kind: "fluent", typeName: a.typeName, name: a.symbol.name },
-  {
-    kind: "static",
-    typeName: `${a.typeName}${c.fluentSuffix}`,
-    name: a.symbol.name,
-  },
-])
-const getters = makeDefinitions(Parser.getters, (a, c) => [
-  { kind: "getter", typeName: a.typeName, name: a.symbol.name },
-  {
-    kind: "static",
-    typeName: `${a.typeName}${c.fluentSuffix}`,
-    name: a.symbol.name,
-  },
-])
-const pipeables = makeDefinitions(Parser.pipeables, (a, c) => [
-  { kind: "pipeable", typeName: a.typeName, name: a.symbol.name },
-  {
-    kind: "static",
-    typeName: `${a.typeName}${c.pipeableSuffix}`,
-    name: a.symbol.name,
-  },
-])
-const statics = makeDefinitions(Parser.statics, (a, c) => [
-  {
-    kind: "static",
-    typeName: `${a.typeName}${c.staticSuffix}`,
-    name: a.symbol.name,
-  },
-])
-const types = makeDefinitions(Parser.types, (a) => [
-  { kind: "type", typeName: a.typeName },
-])
+  return { definitions }
+}
 
-export const definitions = pipe(
-  fluents,
-  Stream.merge(getters),
-  Stream.merge(pipeables),
-  Stream.merge(statics),
-  Stream.merge(types),
-  Stream.runFold(
-    {} as Record<string, Definition[]>,
-    (acc, [namespace, definition]) => ({
-      ...acc,
-      [namespace]: [...(acc[namespace] || []), definition],
-    }),
-  ),
+export interface Serializer extends ReturnType<typeof make> {}
+export const Serializer = Tag.Tag<Serializer>()
+export const makeLayer = (a: SerializerConfig) =>
+  Layer.fromValue(Serializer, () => make(a))
+
+export const definitions = Effect.serviceWithEffect(
+  Serializer,
+  (a) => a.definitions,
 )
