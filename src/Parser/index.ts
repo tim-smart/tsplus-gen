@@ -220,11 +220,12 @@ export const statics = pipe(
   Stream.filter(
     (a) =>
       !isFluentCandidate(a.callSignature) &&
-      a.returnType.getCallSignatures().length === 0,
+      a.returnType.getCallSignatures().length === 0 &&
+      !!a.returnType.symbol,
   ),
   Stream.mapEffect((a) =>
     pipe(
-      getTypeInformation(a.callSignature.getReturnType()),
+      getTypeInformation(a.returnType),
       Effect.map((self) => ({
         ...a,
         typeName: self.typeName,

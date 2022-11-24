@@ -19,6 +19,11 @@ export const testPipeable =
   <R, E>(self: Effect.Effect<R, E, A>) =>
     Effect.map(f)(self)
 
+export const testPipeableInt =
+  <A, B>(f: (a: A) => B) =>
+  (self: number) =>
+    self
+
 export function testFluent<R, E, A, B>(
   self: Effect.Effect<R, E, A>,
   f: (a: A) => B,
@@ -28,6 +33,10 @@ export function testFluent<R, E, A, B>(
 
 export function testConstructor<A>(a: A) {
   return Effect.sync(() => a)
+}
+
+export function sum(a: number, b: number) {
+  return a + b
 }
 
 export type Special = number
