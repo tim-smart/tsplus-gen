@@ -7,10 +7,21 @@ const ParserLive = Parser.make({
   tsconfig: "./tsconfig.json",
 })
 
-const EnvLive = pipe(FsLive, Layer.provideTo(ParserLive))
+const SerializerConfigLive = Serializer.makeConfig({
+  fluentSuffix: ".Ops",
+  staticSuffix: ".Ops",
+  pipeableSuffix: ".Aspects",
+})
+
+const EnvLive = pipe(
+  FsLive,
+  Layer.provideTo(ParserLive),
+  Layer.merge(SerializerConfigLive),
+)
 
 const main = pipe(
   Serializer.definitions,
+  Effect.scoped,
   Effect.tap((a) =>
     Effect.sync(() => {
       console.log(JSON.stringify(a, null, 2))
