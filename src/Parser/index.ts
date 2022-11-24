@@ -11,11 +11,13 @@ import {
 import Ts from "typescript"
 import * as Path from "path"
 import { z } from "zod"
+import Minimatch from "minimatch"
 
 export const TsProject = z.object({
   moduleName: z.string(),
   baseDir: z.string(),
   tsconfig: z.string(),
+  paths: z.array(z.string()),
 })
 export type TsConfig = z.infer<typeof TsProject>
 
@@ -39,19 +41,25 @@ const compilerOptions = (path: string) =>
     ),
   )
 
-const rootNames = (baseDir: string) =>
-  pipe(
+const rootNames = (baseDir: string, paths: string[]) => {
+  const res = paths
+    .map((a) => Minimatch.makeRe(a))
+    .filter((a): a is RegExp => a !== false)
+
+  return pipe(
     Fs.walk(baseDir),
     Stream.filter((a) => a.endsWith(".ts")),
+    Stream.filter((a) => res.every((re) => re.test(a))),
     Stream.runCollect,
     Effect.map(Collection.toArray),
   )
+}
 
-const makeParser = ({ baseDir, moduleName, tsconfig }: TsConfig) =>
+const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
   Effect.gen(function* ($) {
     const options = yield* $(compilerOptions(tsconfig))
     const program = Ts.createProgram({
-      rootNames: yield* $(rootNames(baseDir)),
+      rootNames: yield* $(rootNames(baseDir, paths)),
       options,
     })
 
