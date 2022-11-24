@@ -82,21 +82,13 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
 
     const exported = sourceFiles.flatMap(exportsFromSourceFile)
 
-    const isGetter = (signature: Ts.Signature) =>
-      pipe(
-        Maybe.fromPredicate(signature.getParameters(), (a) => a.length === 1),
-        Maybe.map((a) => a[0]),
-        Maybe.filter((a) => ["self", "_self"].includes(a.name)),
-        Maybe.isSome,
-      )
-
-    const fluentTypeInformation = (signature: Ts.Signature) =>
+    const fluentCandidateTypeInfo = (signature: Ts.Signature) =>
       pipe(
         Maybe.struct({
           firstParamType: pipe(
-            Maybe.fromPredicate(signature.getParameters(), (a) => a.length > 1),
-            Maybe.map((a) => a[0]),
+            Maybe.fromNullable(signature.getParameters()?.[0]),
             Maybe.map(getSymbolType),
+            Maybe.filter((a) => a.getCallSignatures().length === 0),
             Maybe.flatMap(getTypeInformation),
           ),
           returnType: pipe(getReturnType(signature), getTypeInformation),
@@ -107,8 +99,27 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
         ),
       )
 
+    const fluentTypeInformation = (signature: Ts.Signature) =>
+      pipe(
+        Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
+        Maybe.flatMap(fluentCandidateTypeInfo),
+      )
+
+    const getterTypeInformation = (signature: Ts.Signature) =>
+      pipe(
+        Maybe.fromPredicate(signature, (a) => a.getParameters().length === 1),
+        Maybe.flatMap(fluentCandidateTypeInfo),
+      )
+
+    const isPipeableSignature = (signature: Ts.Signature) =>
+      pipe(
+        Maybe.fromPredicate(signature, (a) => a.getParameters().length === 1),
+        Maybe.filter((a) => a.getReturnType().getCallSignatures().length === 0),
+        Maybe.isSome,
+      )
+
     const isPipeableReturnType = (type: Ts.Type) =>
-      type.getCallSignatures().some(isGetter)
+      type.getCallSignatures().some(isPipeableSignature)
 
     const getSourceFileFromSymbol = (symbol: Ts.Symbol) =>
       pipe(
@@ -156,11 +167,14 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
     const getTargetString = (sourceFile: Ts.SourceFile, name: string) => {
       const namespace = getNamespaceFromSourceFile(sourceFile)
       const baseName = Path.basename(namespace)
+      const namespaceWithoutSlashes = namespace.replaceAll("/", "")
 
       if (name === baseName) {
         return namespace
       } else if (name.startsWith(baseName)) {
         return `${namespace}.${name.slice(baseName.length)}`
+      } else if (namespaceWithoutSlashes.endsWith(name)) {
+        return namespace
       }
 
       return `${namespace}.${name}`
@@ -212,24 +226,20 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
         returnType: getReturnType(a.callSignature),
       }))
 
-    const getters = callables
-      .filter((a) => isGetter(a.callSignature))
-      .flatMap((a) =>
-        pipe(
-          a.callSignature.getParameters()[0],
-          getSymbolType,
-          getTypeInformation,
-          Maybe.fold(
-            () => [],
-            (self) => [
-              {
-                ...a,
-                typeName: self.typeName,
-              },
-            ],
-          ),
+    const getters = callables.flatMap((a) =>
+      pipe(
+        getterTypeInformation(a.callSignature),
+        Maybe.fold(
+          () => [],
+          (self) => [
+            {
+              ...a,
+              typeName: self.firstParamType.typeName,
+            },
+          ],
         ),
-      )
+      ),
+    )
 
     const fluents = callables.flatMap((a) =>
       pipe(
@@ -252,7 +262,9 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
       .filter((a) => isPipeableReturnType(a.returnType))
       .map((a) => ({
         ...a,
-        returnCallSignature: a.returnType.getCallSignatures().find(isGetter)!,
+        returnCallSignature: a.returnType
+          .getCallSignatures()
+          .find(isPipeableSignature)!,
       }))
       .flatMap((a) =>
         pipe(
@@ -275,8 +287,7 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
     const statics = callables
       .filter(
         (a) =>
-          Maybe.isNone(fluentTypeInformation(a.callSignature)) &&
-          !isGetter(a.callSignature) &&
+          Maybe.isNone(fluentCandidateTypeInfo(a.callSignature)) &&
           a.returnType.getCallSignatures().length === 0,
       )
       .flatMap((a) =>
