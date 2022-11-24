@@ -14,10 +14,17 @@ export const testGetter = <R, E, A>(self: Effect.Effect<R, E, A>) =>
 export const testGetterUnderscore = <R, E, A>(_self: Effect.Effect<R, E, A>) =>
   true
 
-export const testFluent =
+export const testPipeable =
   <A, B>(f: (a: A) => B) =>
   <R, E>(self: Effect.Effect<R, E, A>) =>
     Effect.map(f)(self)
+
+export function testFluent<R, E, A, B>(
+  self: Effect.Effect<R, E, A>,
+  f: (a: A) => B,
+) {
+  return Effect.map(f)(self)
+}
 
 export function testConstructor<A>(a: A) {
   return Effect.sync(() => a)

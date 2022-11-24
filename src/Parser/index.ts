@@ -56,9 +56,6 @@ export const Parser = Tag.Tag<Parser>()
 export const make = (a: ParserConfig) =>
   pipe(makeParser(a), Layer.fromEffect(Parser))
 
-const withChecker = <A>(f: (checker: Ts.TypeChecker) => A) =>
-  Effect.serviceWith(Parser, (a) => f(a.checker))
-
 const rootNames = (baseDir: string) =>
   pipe(
     Fs.walk(baseDir),
@@ -81,57 +78,14 @@ const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
     ),
   )
 
-const nodesFromSourceFile = (
-  sourceFile: Ts.Node,
-): Stream.Stream<never, never, Ts.Node> =>
-  pipe(
-    Stream.async<never, never, Ts.Node>((emit) => {
-      Ts.forEachChild(sourceFile, (a) => {
-        emit.single(a)
-      })
-      emit.end()
-    }, Infinity),
-    Stream.flatMap((a) =>
-      Ts.isModuleDeclaration(a) ? nodesFromSourceFile(a) : Stream.sync(() => a),
-    ),
-  )
-
 const getSymbolType = (symbol: Ts.Symbol) =>
   Effect.serviceWith(Parser, ({ checker }) =>
     checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration!),
   )
 
-const getSymbol = (node: Ts.Node) =>
-  Effect.serviceWith(Parser, ({ checker }) =>
-    pipe(
-      Maybe.Do,
-      Maybe.bind("symbol", () =>
-        Maybe.fromNullable(checker.getSymbolAtLocation(node)),
-      ),
-      Maybe.bind("type", ({ symbol }) =>
-        pipe(
-          Maybe.fromNullable(symbol.valueDeclaration),
-          Maybe.map((a) => checker.getTypeOfSymbolAtLocation(symbol, a)),
-        ),
-      ),
-      Maybe.map((a) => ({
-        ...a,
-        sourceFile: node.getSourceFile(),
-        node,
-      })),
-    ),
-  )
-
 const getReturnType = (signature: Ts.Signature) =>
   Effect.serviceWith(Parser, ({ checker }) =>
     checker.getReturnTypeOfSignature(signature),
-  )
-
-const getSymbolStream = (node: Ts.Node) =>
-  pipe(
-    getSymbol(node),
-    Effect.flatMap(Effect.fromMaybe),
-    Stream.fromEffectMaybe,
   )
 
 const exported = pipe(sourceFiles, Stream.flatMap(exportsFromSourceFile))
@@ -150,36 +104,31 @@ const exportedWithDeclarations = Stream.serviceWithStream(
         type: checker.getTypeOfSymbolAtLocation(a.symbol, a.node),
         sourceFile: a.node.getSourceFile(),
       })),
+      Stream.bind("typeName", (a) =>
+        Stream.fromEffect(getTargetString(a.sourceFile, a.symbol.name)),
+      ),
     ),
 )
 
-const filterDeclarations = <A extends Ts.Node>(f: (a: Ts.Node) => a is A) =>
+const filterExports = <K extends string, A extends Ts.Node>(
+  kind: K,
+  f: (a: Ts.Node) => a is A,
+) =>
   pipe(
     exportedWithDeclarations,
-    Stream.filter(
-      (
-        a: any,
-      ): a is {
-        symbol: Ts.Symbol
-        sourceFile: Ts.SourceFile
-        type: Ts.Type
-        node: A
-      } => f(a.node),
-    ),
+    Stream.filter((a) => f(a.node)),
+    Stream.map((a) => ({
+      ...a,
+      kind,
+      node: a.node as any as A,
+    })),
   )
 
-const classes = filterDeclarations(Ts.isClassDeclaration)
-const variables = filterDeclarations(Ts.isVariableDeclaration)
-
-const functions = filterDeclarations(Ts.isFunctionDeclaration)
-const constants = pipe(
-  variables,
-  Stream.filter((a) => a.type.getCallSignatures().length === 0),
-)
-
-const interfaces = filterDeclarations(Ts.isInterfaceDeclaration)
-const typeAliases = filterDeclarations(Ts.isTypeAliasDeclaration)
-const enums = filterDeclarations(Ts.isEnumDeclaration)
+const classes = filterExports("class", Ts.isClassDeclaration)
+const variables = filterExports("const", Ts.isVariableDeclaration)
+const functions = filterExports("function", Ts.isFunctionDeclaration)
+const interfaces = filterExports("interface", Ts.isInterfaceDeclaration)
+const typeAliases = filterExports("type", Ts.isTypeAliasDeclaration)
 
 // Callables
 const callables = pipe(
@@ -203,17 +152,38 @@ const isFluentCandidate = (signature: Ts.Signature) =>
 const isGetter = (signature: Ts.Signature) =>
   isFluentCandidate(signature) && signature.getParameters().length === 1
 
+const isFluent = (signature: Ts.Signature) =>
+  isFluentCandidate(signature) && signature.getParameters().length > 1
+
 const isPipeableReturnType = (type: Ts.Type) =>
   type.getCallSignatures().some(isGetter)
 
 export const getters = pipe(
   callables,
   Stream.filter((a) => isGetter(a.callSignature)),
-  Stream.bind("selfType", (a) =>
+  Stream.mapEffect((a) =>
     pipe(
       getSymbolType(a.callSignature.getParameters()[0]),
       Effect.flatMap(getTypeInformation),
-      Stream.fromEffect,
+      Effect.map((self) => ({
+        ...a,
+        typeName: self.typeName,
+      })),
+    ),
+  ),
+)
+
+export const fluents = pipe(
+  callables,
+  Stream.filter((a) => isFluent(a.callSignature)),
+  Stream.mapEffect((a) =>
+    pipe(
+      getSymbolType(a.callSignature.getParameters()[0]),
+      Effect.flatMap(getTypeInformation),
+      Effect.map((self) => ({
+        ...a,
+        typeName: self.typeName,
+      })),
     ),
   ),
 )
@@ -224,37 +194,40 @@ export const pipeables = pipe(
   Stream.bind("returnCallSignature", (a) =>
     Stream.sync(() => a.returnType.getCallSignatures().find(isGetter)!),
   ),
-  Stream.bind("selfType", (a) =>
+  Stream.mapEffect((a) =>
     pipe(
       getSymbolType(a.returnCallSignature.getParameters()[0]),
       Effect.flatMap(getTypeInformation),
-      Stream.fromEffect,
+      Effect.map((self) => ({
+        ...a,
+        typeName: self.typeName,
+      })),
     ),
   ),
 )
 
-export const constructors = pipe(
+export const statics = pipe(
   callables,
   Stream.filter(
     (a) =>
       !isFluentCandidate(a.callSignature) &&
       a.returnType.getCallSignatures().length === 0,
   ),
-  Stream.bind("selfType", (a) =>
-    Stream.fromEffect(getTypeInformation(a.callSignature.getReturnType())),
+  Stream.mapEffect((a) =>
+    pipe(
+      getTypeInformation(a.callSignature.getReturnType()),
+      Effect.map((self) => ({
+        ...a,
+        typeName: self.typeName,
+      })),
+    ),
   ),
 )
 
-// Static
-export const statics = pipe(
+export const types = pipe(
   classes,
   Stream.merge(interfaces),
   Stream.merge(typeAliases),
-  Stream.merge(enums),
-  Stream.merge(constants),
-  Stream.bind("namespace", (a) =>
-    Stream.fromEffect(getNamespaceFromSourceFile(a.sourceFile)),
-  ),
 )
 
 const getSourceFileFromType = (type: Ts.Type) =>
@@ -291,5 +264,23 @@ const getTypeInformation = (type: Ts.Type) =>
       name: type.symbol.name,
       sourceFile: getSourceFileFromType(type),
     })),
-    Effect.bind("namespace", (a) => getNamespaceFromSourceFile(a.sourceFile)),
+    Effect.bind("typeName", (a) => getTargetString(a.sourceFile, a.name)),
+  )
+
+const getTargetString = (sourceFile: Ts.SourceFile, name: string) =>
+  pipe(
+    getNamespaceFromSourceFile(sourceFile),
+    Effect.map((namespace) => ({
+      namespace,
+      baseName: Path.basename(namespace),
+    })),
+    Effect.map((a) => {
+      if (name === a.baseName) {
+        return a.namespace
+      } else if (name.startsWith(a.baseName)) {
+        return `${a.namespace}.${name.slice(a.baseName.length)}`
+      }
+
+      return `${a.namespace}.${name}`
+    }),
   )

@@ -21,25 +21,17 @@ const label = <R, E, A, T extends string>(
 const main = pipe(
   label("static", Parser.statics),
   Stream.merge(label("getter", Parser.getters)),
+  Stream.merge(label("fluent", Parser.fluents)),
   Stream.merge(label("pipeable", Parser.pipeables)),
-  Stream.merge(label("constructor", Parser.constructors)),
+  Stream.merge(label("type", Parser.types)),
   Stream.tap((a) =>
     Effect.sync(() => {
-      switch (a[0]) {
-        case "static":
-          return console.log({
-            kind: a[0],
-            namespace: a[1].namespace,
-            name: a[1].symbol.name,
-          })
-        default:
-          return console.log({
-            kind: a[0],
-            namespace: a[1].selfType.namespace,
-            type: a[1].selfType.name,
-            name: a[1].symbol.name,
-          })
-      }
+      console.log({
+        label: a[0],
+        kind: a[1].kind,
+        typeName: a[1].typeName,
+        name: a[1].symbol.name,
+      })
     }),
   ),
   Stream.runDrain,
