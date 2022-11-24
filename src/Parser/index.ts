@@ -74,6 +74,13 @@ const sourceFiles = Stream.serviceWithStream(Parser, ({ program }) =>
   ),
 )
 
+const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
+  Stream.serviceWithStream(Parser, ({ checker }) =>
+    Stream.fromCollection(
+      checker.getExportsOfModule(checker.getSymbolAtLocation(sourceFile)!),
+    ),
+  )
+
 const nodesFromSourceFile = (
   sourceFile: Ts.Node,
 ): Stream.Stream<never, never, Ts.Node> =>
@@ -98,7 +105,6 @@ const getSymbol = (node: Ts.Node) =>
   Effect.serviceWith(Parser, ({ checker }) =>
     pipe(
       Maybe.Do,
-      Maybe.bind("sourceFile", () => Maybe.some(node.getSourceFile())),
       Maybe.bind("symbol", () =>
         Maybe.fromNullable(checker.getSymbolAtLocation(node)),
       ),
@@ -108,6 +114,11 @@ const getSymbol = (node: Ts.Node) =>
           Maybe.map((a) => checker.getTypeOfSymbolAtLocation(symbol, a)),
         ),
       ),
+      Maybe.map((a) => ({
+        ...a,
+        sourceFile: node.getSourceFile(),
+        node,
+      })),
     ),
   )
 
@@ -123,60 +134,57 @@ const getSymbolStream = (node: Ts.Node) =>
     Stream.fromEffectMaybe,
   )
 
-const nodes = pipe(sourceFiles, Stream.flatMap(nodesFromSourceFile))
+const exported = pipe(sourceFiles, Stream.flatMap(exportsFromSourceFile))
 
-const isNodeExported = (node: Ts.Node): boolean =>
-  (Ts.getCombinedModifierFlags(node as Ts.Declaration) &
-    Ts.ModifierFlags.Export) !==
-    0 || node.parent.kind === Ts.SyntaxKind.SourceFile
-
-Ts.isArrowFunction
-
-const exportedNodes = pipe(nodes, Stream.filter(isNodeExported))
-
-const classes = pipe(exportedNodes, Stream.filter(Ts.isClassDeclaration))
-
-const variables = pipe(exportedNodes, Stream.filter(Ts.isVariableStatement))
-
-const constVariables = pipe(
-  variables,
-  Stream.filter((a) => (a.declarationList.flags & Ts.NodeFlags.Const) !== 0),
+const exportedWithDeclarations = Stream.serviceWithStream(
+  Parser,
+  ({ checker }) =>
+    pipe(
+      exported,
+      Stream.map((symbol) => ({
+        symbol,
+        node: symbol.getDeclarations()![0],
+      })),
+      Stream.map((a) => ({
+        ...a,
+        type: checker.getTypeOfSymbolAtLocation(a.symbol, a.node),
+        sourceFile: a.node.getSourceFile(),
+      })),
+    ),
 )
 
-const constVariableDeclarations = pipe(
-  constVariables,
-  Stream.flatMap((a) => Stream.fromCollection(a.declarationList.declarations)),
-)
+const filterDeclarations = <A extends Ts.Node>(f: (a: Ts.Node) => a is A) =>
+  pipe(
+    exportedWithDeclarations,
+    Stream.filter(
+      (
+        a: any,
+      ): a is {
+        symbol: Ts.Symbol
+        sourceFile: Ts.SourceFile
+        type: Ts.Type
+        node: A
+      } => f(a.node),
+    ),
+  )
 
-const constVariableSymbols = pipe(
-  constVariableDeclarations,
-  Stream.flatMap((a) => getSymbolStream(a.name)),
-)
+const classes = filterDeclarations(Ts.isClassDeclaration)
+const variables = filterDeclarations(Ts.isVariableDeclaration)
 
-const functions = pipe(exportedNodes, Stream.filter(Ts.isFunctionDeclaration))
-const functionSymbols = pipe(
-  functions,
-  Stream.filter((a) => !!a.name),
-  Stream.flatMap((a) => getSymbolStream(a.name!)),
-)
+const functions = filterDeclarations(Ts.isFunctionDeclaration)
 const constants = pipe(
-  constVariableSymbols,
+  variables,
   Stream.filter((a) => a.type.getCallSignatures().length === 0),
 )
 
-const interfaces = pipe(exportedNodes, Stream.filter(Ts.isInterfaceDeclaration))
-
-const typeAliases = pipe(
-  exportedNodes,
-  Stream.filter(Ts.isTypeAliasDeclaration),
-)
-
-const enums = pipe(exportedNodes, Stream.filter(Ts.isEnumDeclaration))
+const interfaces = filterDeclarations(Ts.isInterfaceDeclaration)
+const typeAliases = filterDeclarations(Ts.isTypeAliasDeclaration)
+const enums = filterDeclarations(Ts.isEnumDeclaration)
 
 // Callables
 const callables = pipe(
-  constVariableSymbols,
-  Stream.merge(functionSymbols),
+  variables,
+  Stream.merge(functions),
   Stream.bind("callSignature", ({ type }) =>
     Stream.fromCollection(type.getCallSignatures()),
   ),
@@ -238,30 +246,12 @@ export const constructors = pipe(
 )
 
 // Static
-const nonVariableStatics = pipe(
+export const statics = pipe(
   classes,
   Stream.merge(interfaces),
   Stream.merge(typeAliases),
   Stream.merge(enums),
-  Stream.filter((a) => !!a.name),
-  Stream.map((a) => ({
-    declaration: a,
-    name: a.name!.escapedText,
-    sourceFile: a.getSourceFile(),
-  })),
-)
-
-export const statics = pipe(
-  nonVariableStatics,
-  Stream.merge(
-    pipe(
-      constants,
-      Stream.map((a) => ({
-        ...a,
-        name: a.symbol.name,
-      })),
-    ),
-  ),
+  Stream.merge(constants),
   Stream.bind("namespace", (a) =>
     Stream.fromEffect(getNamespaceFromSourceFile(a.sourceFile)),
   ),

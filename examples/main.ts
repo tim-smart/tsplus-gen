@@ -1,5 +1,7 @@
 import * as Effect from "@effect/core/io/Effect"
 
+const nonExportedConstant = 123
+
 export interface TestInterface {}
 
 export class TestClass {}

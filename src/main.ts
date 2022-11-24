@@ -30,7 +30,7 @@ const main = pipe(
           return console.log({
             kind: a[0],
             namespace: a[1].namespace,
-            name: a[1].name,
+            name: a[1].symbol.name,
           })
         default:
           return console.log({
