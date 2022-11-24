@@ -1,0 +1,25 @@
+{
+  "name": "tsplus-gen",
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "yarn@3.3.0",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "import": "./dist/*"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.9",
+    "prettier": "^2.8.0",
+    "ts-node": "^10.9.1",
+    "tsconfig-paths": "^4.1.0"
+  },
+  "dependencies": {
+    "@effect/core": "^0.0.16",
+    "@tsplus/stdlib": "^0.2.8",
+    "typescript": "^4.9.3"
+  }
+}

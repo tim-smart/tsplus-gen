@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "outDir": "dist",
+    "strict": true,
+    "baseUrl": ".",
+    "rootDir": "src",
+    "lib": ["ESNext"],
+    "target": "ES6",
+    "moduleResolution": "NodeNext",
+    "module": "ES6",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "paths": {
+      "tsplus-gen/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "ts-node": {
+    "files": true,
+    "require": ["tsconfig-paths/register"]
+  }
+}
