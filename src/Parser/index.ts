@@ -42,14 +42,9 @@ const compilerOptions = (path: string) =>
   )
 
 const rootNames = (baseDir: string, paths: string[]) => {
-  const res = paths
-    .map((a) => Minimatch.makeRe(a))
-    .filter((a): a is RegExp => a !== false)
-
   return pipe(
     Fs.walk(baseDir),
     Stream.filter((a) => a.endsWith(".ts")),
-    Stream.filter((a) => res.every((re) => re.test(a))),
     Stream.runCollect,
     Effect.map(Collection.toArray),
   )
@@ -63,14 +58,21 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
       options,
     })
 
+    const pathRes = paths
+      .map((a) => Minimatch.makeRe(a))
+      .filter((a): a is RegExp => a !== false)
+
     const checker = program.getTypeChecker()
 
     const sourceFiles = program
       .getSourceFiles()
       .filter((a) => !a.isDeclarationFile)
+      .filter((a) => pathRes.every((re) => re.test(a.fileName)))
 
     const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
-      checker.getExportsOfModule(checker.getSymbolAtLocation(sourceFile)!)
+      checker
+        .getExportsOfModule(checker.getSymbolAtLocation(sourceFile)!)
+        .map((symbol) => ({ sourceFile, symbol }))
 
     const getSymbolType = (symbol: Ts.Symbol) =>
       checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration!)
@@ -88,8 +90,8 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
         Maybe.isSome,
       )
 
-    const fluentTypeInformation = (signature: Ts.Signature) => {
-      return pipe(
+    const fluentTypeInformation = (signature: Ts.Signature) =>
+      pipe(
         Maybe.struct({
           firstParamType: pipe(
             Maybe.fromPredicate(signature.getParameters(), (a) => a.length > 1),
@@ -104,26 +106,28 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
             firstParamType.typeName === returnType.typeName,
         ),
       )
-    }
 
     const isPipeableReturnType = (type: Ts.Type) =>
       type.getCallSignatures().some(isGetter)
 
-    const getSourceFileFromType = (type: Ts.Type) =>
-      type.symbol.valueDeclaration!.getSourceFile()
+    const getSourceFileFromSymbol = (symbol: Ts.Symbol) =>
+      pipe(
+        Maybe.fromNullable(symbol.getDeclarations()),
+        Maybe.map((a) => a[0]),
+        Maybe.map((a) => a.getSourceFile()),
+      )
 
     const getModuleFromSourceFile = (file: Ts.SourceFile) =>
       pipe(
         file.fileName.includes("/node_modules/")
           ? getExternalModulePath(file.fileName)
           : getInternalModulePath(file.fileName),
-        (path) => path.replace(/\.tsx?$/, ".js"),
+        (path) => path.replace(/\.tsx?$/, ""),
       )
     const getNamespaceFromSourceFile = (file: Ts.SourceFile) =>
       getModuleFromSourceFile(file)
         .replace(/\/definition\/.*/, "")
         .replace(/^@/, "")
-        .replace(/\.js$/, "")
         .replace(/\/index$/, "")
 
     const getExternalModulePath = (file: string) =>
@@ -134,16 +138,19 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
 
     const getTypeInformation = (type: Ts.Type) =>
       pipe(
-        Maybe.fromNullable(type?.symbol?.name),
-        Maybe.map((name) => {
-          const sourceFile = getSourceFileFromType(type)
-          return {
-            type,
-            name,
-            sourceFile,
-            typeName: getTargetString(sourceFile, name),
-          }
-        }),
+        Maybe.fromNullable(type.aliasSymbol ?? type.symbol),
+        Maybe.flatMap((symbol) =>
+          Maybe.struct({
+            name: Maybe.fromNullable(symbol.name),
+            sourceFile: getSourceFileFromSymbol(symbol),
+          }),
+        ),
+        Maybe.map(({ name, sourceFile }) => ({
+          type,
+          name,
+          sourceFile,
+          typeName: getTargetString(sourceFile, name),
+        })),
       )
 
     const getTargetString = (sourceFile: Ts.SourceFile, name: string) => {
@@ -159,10 +166,9 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
       return `${namespace}.${name}`
     }
 
-    const exportedWithDeclarations = exported.map((symbol) => {
+    const exportedWithDeclarations = exported.map(({ symbol, sourceFile }) => {
       const node = symbol.getDeclarations()![0]
       const type = checker.getTypeOfSymbolAtLocation(symbol, node)
-      const sourceFile = node.getSourceFile()
       const module = getModuleFromSourceFile(sourceFile)
       const typeName = getTargetString(sourceFile, symbol.name)
 
@@ -227,7 +233,11 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
 
     const fluents = callables.flatMap((a) =>
       pipe(
-        fluentTypeInformation(a.callSignature),
+        Maybe.fromPredicate(
+          a.callSignature,
+          (a) => a.getReturnType().getCallSignatures().length === 0,
+        ),
+        Maybe.flatMap(fluentTypeInformation),
         Maybe.fold(
           () => [],
           (info) => ({
@@ -266,6 +276,7 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
       .filter(
         (a) =>
           Maybe.isNone(fluentTypeInformation(a.callSignature)) &&
+          !isGetter(a.callSignature) &&
           a.returnType.getCallSignatures().length === 0,
       )
       .flatMap((a) =>

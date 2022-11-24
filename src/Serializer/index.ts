@@ -7,6 +7,7 @@ export const Namespace = z.object({
   fluentSuffix: z.string(),
   pipeableSuffix: z.string(),
   staticSuffix: z.string(),
+  moduleFileExtension: z.string().optional(),
 })
 export type Namespace = z.infer<typeof Namespace>
 
@@ -60,7 +61,7 @@ const make = (namespaces: SerializerConfig) => {
       Stream.filter(([, ns]) => !!ns),
       Stream.map(
         ([a, config]): DefinitionTuple => [
-          a.module,
+          `${a.module}${config.moduleFileExtension || ""}`,
           {
             definitionName: a.symbol.name,
             definitionKind: a.kind,

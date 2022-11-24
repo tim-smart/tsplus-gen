@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { Effect, Parser, pipe, Serializer } from "./common.js"
 import { fromFile } from "./Config/index.js"
 import { FsLive } from "./Fs/index.js"

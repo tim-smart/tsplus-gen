@@ -5,11 +5,12 @@
     "baseUrl": ".",
     "rootDir": "src",
     "lib": ["ESNext"],
-    "target": "ES6",
+    "target": "ES2021",
     "moduleResolution": "NodeNext",
     "module": "ES6",
     "skipLibCheck": true,
     "esModuleInterop": true,
+    "inlineSourceMap": true,
     "paths": {
       "tsplus-gen/*": ["./src/*"]
     }
