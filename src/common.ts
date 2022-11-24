@@ -10,3 +10,4 @@ export { pipe } from "@tsplus/stdlib/data/Function"
 
 export * as Fs from "tsplus-gen/Fs/index.js"
 export * as Parser from "tsplus-gen/Parser/index.js"
+export * as Serializer from "tsplus-gen/Serializer/index.js"

@@ -104,8 +104,17 @@ const exportedWithDeclarations = Stream.serviceWithStream(
         type: checker.getTypeOfSymbolAtLocation(a.symbol, a.node),
         sourceFile: a.node.getSourceFile(),
       })),
-      Stream.bind("typeName", (a) =>
-        Stream.fromEffect(getTargetString(a.sourceFile, a.symbol.name)),
+      Stream.mapEffect((a) =>
+        pipe(
+          Effect.struct({
+            namespace: getNamespaceFromSourceFile(a.sourceFile),
+            typeName: getTargetString(a.sourceFile, a.symbol.name),
+          }),
+          Effect.map((b) => ({
+            ...a,
+            ...b,
+          })),
+        ),
       ),
     ),
 )
