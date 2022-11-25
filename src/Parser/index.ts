@@ -13,13 +13,18 @@ import * as Path from "path"
 import { z } from "zod"
 import Minimatch from "minimatch"
 
-export const TsProject = z.object({
-  moduleName: z.string(),
+export const TypeAlias = z.object({
+  module: z.string(),
+})
+
+export const Config = z.object({
+  packageName: z.string(),
   baseDir: z.string(),
   tsconfig: z.string(),
   paths: z.array(z.string()),
+  staticPrefixes: z.array(z.string()).optional(),
 })
-export type TsConfig = z.infer<typeof TsProject>
+export type Config = z.infer<typeof Config>
 
 export class TsconfigParseError {
   readonly _tag = "TsconfigParseError"
@@ -50,7 +55,12 @@ const rootNames = (baseDir: string) => {
   )
 }
 
-const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
+const makeParser = ({
+  baseDir,
+  packageName: moduleName,
+  tsconfig,
+  paths,
+}: Config) =>
   Effect.gen(function* ($) {
     const options = yield* $(compilerOptions(tsconfig))
     const program = Ts.createProgram({
@@ -330,7 +340,7 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
 export interface Parser
   extends Effect.Effect.Success<ReturnType<typeof makeParser>> {}
 export const Parser = Tag.Tag<Parser>()
-export const make = (a: TsConfig) => Layer.scoped(Parser, makeParser(a))
+export const make = (a: Config) => Layer.scoped(Parser, makeParser(a))
 
 export const fluents = Stream.serviceWithStream(Parser, (a) => a.fluents)
 export const getters = Stream.serviceWithStream(Parser, (a) => a.getters)

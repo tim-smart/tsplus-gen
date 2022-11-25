@@ -2,7 +2,7 @@ import { Effect, Fs, Parser, pipe, Serializer } from "tsplus-gen/common.js"
 import { z } from "zod"
 
 export const Config = z.object({
-  project: Parser.TsProject,
+  project: Parser.Config,
   namespaces: Serializer.NamespaceList,
   additionalExtensions: Serializer.AdditionalExtensions.optional(),
 })
