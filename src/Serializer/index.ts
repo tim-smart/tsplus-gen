@@ -2,6 +2,29 @@ import { Effect, Layer, Parser, pipe, Stream, Tag } from "tsplus-gen/common.js"
 import { Symbol } from "typescript"
 import { z } from "zod"
 
+export const ExtensionKindBasic = z
+  .literal("static")
+  .or(z.literal("pipeable"))
+  .or(z.literal("fluent"))
+  .or(z.literal("getter"))
+  .or(z.literal("type"))
+export type ExtensionKindBasic = z.infer<typeof ExtensionKindBasic>
+
+export const ExtensionKind = ExtensionKindBasic.or(z.literal("companion"))
+  .or(z.literal("no-inherit"))
+  .or(z.literal("operator"))
+  .or(z.literal("pipeable-index"))
+  .or(z.literal("pipeable-operator"))
+  .or(z.literal("unify"))
+export type ExtensionKind = z.infer<typeof ExtensionKind>
+
+export const Extension = z.object({
+  kind: ExtensionKind,
+  typeName: z.string(),
+  name: z.string().optional(),
+})
+export type Extension = z.infer<typeof Extension>
+
 export const KindConfig = z.object({
   include: z.boolean(),
   suffix: z.string().optional(),
@@ -22,26 +45,20 @@ export type Namespace = z.infer<typeof Namespace>
 export const SerializerConfig = z.array(Namespace)
 export type SerializerConfig = z.infer<typeof SerializerConfig>
 
-export type DefinitionKind =
-  | "const"
-  | "function"
-  | "interface"
-  | "class"
-  | "type"
+export const DefinitionKind = z
+  .literal("const")
+  .or(z.literal("function"))
+  .or(z.literal("interface"))
+  .or(z.literal("class"))
+  .or(z.literal("type"))
+export type DefinitionKind = z.infer<typeof DefinitionKind>
 
-export interface Definition {
-  readonly definitionName: string
-  readonly definitionKind: DefinitionKind
-  readonly extensions: ReadonlyArray<Extension>
-}
-
-export type ExtensionKind = "static" | "pipeable" | "fluent" | "getter" | "type"
-
-export interface Extension {
-  readonly kind: ExtensionKind
-  readonly typeName: string
-  readonly name?: string
-}
+export const Definition = z.object({
+  definitionName: z.string(),
+  definitionKind: DefinitionKind,
+  extensions: z.array(Extension),
+})
+export type Definition = z.infer<typeof Definition>
 
 type DefinitionTuple = readonly [module: string, definition: Definition]
 
@@ -57,7 +74,7 @@ const make = (namespaces: SerializerConfig) => {
     R,
     E,
     A extends ParserOutput,
-    K extends ExtensionKind,
+    K extends ExtensionKindBasic,
   >(
     kind: K,
     self: Stream.Stream<R, E, A>,
