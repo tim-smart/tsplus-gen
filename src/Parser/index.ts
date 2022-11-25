@@ -41,7 +41,7 @@ const compilerOptions = (path: string) =>
     ),
   )
 
-const rootNames = (baseDir: string, paths: string[]) => {
+const rootNames = (baseDir: string) => {
   return pipe(
     Fs.walk(baseDir),
     Stream.filter((a) => a.endsWith(".ts")),
@@ -54,7 +54,7 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
   Effect.gen(function* ($) {
     const options = yield* $(compilerOptions(tsconfig))
     const program = Ts.createProgram({
-      rootNames: yield* $(rootNames(baseDir, paths)),
+      rootNames: yield* $(rootNames(baseDir)),
       options,
     })
 
@@ -82,33 +82,38 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
 
     const exported = sourceFiles.flatMap(exportsFromSourceFile)
 
-    const fluentCandidateTypeInfo = (signature: Ts.Signature) =>
+    const getFirstParamType = (signature: Ts.Signature) =>
       pipe(
-        Maybe.struct({
-          firstParamType: pipe(
-            Maybe.fromNullable(signature.getParameters()?.[0]),
-            Maybe.map(getSymbolType),
-            Maybe.filter((a) => a.getCallSignatures().length === 0),
-            Maybe.flatMap(getTypeInformation),
-          ),
-          returnType: pipe(getReturnType(signature), getTypeInformation),
-        }),
+        Maybe.fromNullable(signature.getParameters()?.[0]),
+        Maybe.map(getSymbolType),
+        Maybe.filter((a) => a.getCallSignatures().length === 0),
+        Maybe.flatMap(getTypeInformation),
+      )
+
+    const fluentTypeInformation = (signature: Ts.Signature) =>
+      pipe(
+        Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
+        Maybe.flatMap((a) =>
+          Maybe.struct({
+            firstParamType: getFirstParamType(a),
+            returnType: pipe(getReturnType(a), getTypeInformation),
+          }),
+        ),
         Maybe.filter(
           ({ firstParamType, returnType }) =>
             firstParamType.typeName === returnType.typeName,
         ),
       )
 
-    const fluentTypeInformation = (signature: Ts.Signature) =>
-      pipe(
-        Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
-        Maybe.flatMap(fluentCandidateTypeInfo),
-      )
-
     const getterTypeInformation = (signature: Ts.Signature) =>
       pipe(
         Maybe.fromPredicate(signature, (a) => a.getParameters().length === 1),
-        Maybe.flatMap(fluentCandidateTypeInfo),
+        Maybe.filter((a) => a.getReturnType().getCallSignatures().length === 0),
+        Maybe.flatMap((a) =>
+          Maybe.struct({
+            firstParamType: getFirstParamType(a),
+          }),
+        ),
       )
 
     const isPipeableSignature = (signature: Ts.Signature) =>
@@ -287,7 +292,8 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
     const statics = callables
       .filter(
         (a) =>
-          Maybe.isNone(fluentCandidateTypeInfo(a.callSignature)) &&
+          Maybe.isNone(fluentTypeInformation(a.callSignature)) &&
+          Maybe.isNone(getterTypeInformation(a.callSignature)) &&
           a.returnType.getCallSignatures().length === 0,
       )
       .flatMap((a) =>

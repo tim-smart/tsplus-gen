@@ -8,15 +8,42 @@
   "namespaces": [
     {
       "name": "tsplus-example/core",
-      "fluentSuffix": "",
-      "staticSuffix": "",
-      "pipeableSuffix": ""
+      "fluent": {
+        "include": true
+      },
+      "getter": {
+        "include": true
+      },
+      "pipeable": {
+        "include": true
+      },
+      "static": {
+        "include": true
+      },
+      "type": {
+        "include": true
+      }
     },
     {
       "name": "effect/core/io",
-      "fluentSuffix": ".Ops",
-      "staticSuffix": ".Ops",
-      "pipeableSuffix": ".Aspects"
+      "fluent": {
+        "include": true,
+        "suffix": ".Ops"
+      },
+      "getter": {
+        "include": true
+      },
+      "pipeable": {
+        "include": true,
+        "suffix": ".Aspects"
+      },
+      "static": {
+        "include": true,
+        "suffix": ".Ops"
+      },
+      "type": {
+        "include": true
+      }
     }
   ]
 }

@@ -2,11 +2,19 @@ import { Effect, Layer, Parser, pipe, Stream, Tag } from "tsplus-gen/common.js"
 import { Symbol } from "typescript"
 import { z } from "zod"
 
+export const KindConfig = z.object({
+  include: z.boolean(),
+  suffix: z.string().optional(),
+})
+export type KindConfig = z.infer<typeof KindConfig>
+
 export const Namespace = z.object({
   name: z.string(),
-  fluentSuffix: z.string(),
-  pipeableSuffix: z.string(),
-  staticSuffix: z.string(),
+  fluent: KindConfig,
+  getter: KindConfig,
+  pipeable: KindConfig,
+  static: KindConfig,
+  type: KindConfig,
   moduleFileExtension: z.string().optional(),
 })
 export type Namespace = z.infer<typeof Namespace>
@@ -45,7 +53,13 @@ interface ParserOutput {
 }
 
 const make = (namespaces: SerializerConfig) => {
-  const makeDefinitions = <R, E, A extends ParserOutput>(
+  const makeDefinitions = <
+    R,
+    E,
+    A extends ParserOutput,
+    K extends ExtensionKind,
+  >(
+    kind: K,
     self: Stream.Stream<R, E, A>,
     extensions: (a: ParserOutput, config: Namespace) => Extension[],
   ) =>
@@ -59,6 +73,7 @@ const make = (namespaces: SerializerConfig) => {
           ] as const,
       ),
       Stream.filter(([, ns]) => !!ns),
+      Stream.filter(([, ns]) => ns[kind].include),
       Stream.map(
         ([a, config]): DefinitionTuple => [
           `${a.module}${config.moduleFileExtension || ""}`,
@@ -71,38 +86,41 @@ const make = (namespaces: SerializerConfig) => {
       ),
     )
 
-  const fluents = makeDefinitions(Parser.fluents, (a, c) => [
+  const ifStatic = (a: Namespace, extension: Extension) =>
+    a.static.include ? [extension] : []
+
+  const fluents = makeDefinitions("fluent", Parser.fluents, (a, c) => [
     { kind: "fluent", typeName: a.typeName, name: a.symbol.name },
-    {
+    ...ifStatic(c, {
       kind: "static",
-      typeName: `${a.typeName}${c.fluentSuffix}`,
+      typeName: `${a.typeName}${c.fluent.suffix || ""}`,
       name: a.symbol.name,
-    },
+    }),
   ])
-  const getters = makeDefinitions(Parser.getters, (a, c) => [
+  const getters = makeDefinitions("getter", Parser.getters, (a, c) => [
     { kind: "getter", typeName: a.typeName, name: a.symbol.name },
-    {
+    ...ifStatic(c, {
       kind: "static",
-      typeName: `${a.typeName}${c.fluentSuffix}`,
+      typeName: `${a.typeName}${c.getter.suffix || ""}`,
       name: a.symbol.name,
-    },
+    }),
   ])
-  const pipeables = makeDefinitions(Parser.pipeables, (a, c) => [
+  const pipeables = makeDefinitions("pipeable", Parser.pipeables, (a, c) => [
     { kind: "pipeable", typeName: a.typeName, name: a.symbol.name },
+    ...ifStatic(c, {
+      kind: "static",
+      typeName: `${a.typeName}${c.pipeable.suffix || ""}`,
+      name: a.symbol.name,
+    }),
+  ])
+  const statics = makeDefinitions("static", Parser.statics, (a, c) => [
     {
       kind: "static",
-      typeName: `${a.typeName}${c.pipeableSuffix}`,
+      typeName: `${a.typeName}${c.static.suffix || ""}`,
       name: a.symbol.name,
     },
   ])
-  const statics = makeDefinitions(Parser.statics, (a, c) => [
-    {
-      kind: "static",
-      typeName: `${a.typeName}${c.staticSuffix}`,
-      name: a.symbol.name,
-    },
-  ])
-  const types = makeDefinitions(Parser.types, (a) => [
+  const types = makeDefinitions("type", Parser.types, (a) => [
     { kind: "type", typeName: a.typeName },
   ])
 
