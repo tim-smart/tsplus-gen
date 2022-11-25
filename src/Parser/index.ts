@@ -155,6 +155,7 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
     const getTypeInformation = (type: Ts.Type) =>
       pipe(
         Maybe.fromNullable(type.aliasSymbol ?? type.symbol),
+        Maybe.filter(() => !type.isTypeParameter()),
         Maybe.flatMap((symbol) =>
           Maybe.struct({
             name: Maybe.fromNullable(symbol.name),
@@ -221,10 +222,13 @@ const makeParser = ({ baseDir, moduleName, tsconfig, paths }: TsConfig) =>
 
     const callables = [...variables, ...functions]
       .flatMap((a) =>
-        a.type.getCallSignatures().map((callSignature) => ({
-          ...a,
-          callSignature,
-        })),
+        a.type
+          .getCallSignatures()
+          .slice(0, 1)
+          .map((callSignature) => ({
+            ...a,
+            callSignature,
+          })),
       )
       .map((a) => ({
         ...a,
