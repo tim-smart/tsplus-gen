@@ -2,36 +2,36 @@ import { Effect, Layer, Parser, pipe, Stream, Tag } from "tsplus-gen/common.js"
 import { Symbol } from "typescript"
 import { z } from "zod"
 
-export const ExtensionKindBasic = z
+const ExtensionKindBasic = z
   .literal("static")
   .or(z.literal("pipeable"))
   .or(z.literal("fluent"))
   .or(z.literal("getter"))
   .or(z.literal("type"))
-export type ExtensionKindBasic = z.infer<typeof ExtensionKindBasic>
+type ExtensionKindBasic = z.infer<typeof ExtensionKindBasic>
 
-export const ExtensionKind = ExtensionKindBasic.or(z.literal("companion"))
+const ExtensionKind = ExtensionKindBasic.or(z.literal("companion"))
   .or(z.literal("no-inherit"))
   .or(z.literal("operator"))
   .or(z.literal("pipeable-index"))
   .or(z.literal("pipeable-operator"))
   .or(z.literal("unify"))
-export type ExtensionKind = z.infer<typeof ExtensionKind>
+type ExtensionKind = z.infer<typeof ExtensionKind>
 
-export const Extension = z.object({
+const Extension = z.object({
   kind: ExtensionKind,
   typeName: z.string(),
   name: z.string().optional(),
 })
-export type Extension = z.infer<typeof Extension>
+type Extension = z.infer<typeof Extension>
 
-export const KindConfig = z.object({
+const KindConfig = z.object({
   include: z.boolean(),
   suffix: z.string().optional(),
 })
-export type KindConfig = z.infer<typeof KindConfig>
+type KindConfig = z.infer<typeof KindConfig>
 
-export const Namespace = z.object({
+const Namespace = z.object({
   name: z.string(),
   fluent: KindConfig,
   getter: KindConfig,
@@ -40,25 +40,35 @@ export const Namespace = z.object({
   type: KindConfig,
   moduleFileExtension: z.string().optional(),
 })
-export type Namespace = z.infer<typeof Namespace>
+type Namespace = z.infer<typeof Namespace>
 
-export const SerializerConfig = z.array(Namespace)
-export type SerializerConfig = z.infer<typeof SerializerConfig>
+export const NamespaceList = z.array(Namespace)
+export type NamespaceList = z.infer<typeof NamespaceList>
 
-export const DefinitionKind = z
+const DefinitionKind = z
   .literal("const")
   .or(z.literal("function"))
   .or(z.literal("interface"))
   .or(z.literal("class"))
   .or(z.literal("type"))
-export type DefinitionKind = z.infer<typeof DefinitionKind>
+type DefinitionKind = z.infer<typeof DefinitionKind>
 
-export const Definition = z.object({
+const Definition = z.object({
   definitionName: z.string(),
   definitionKind: DefinitionKind,
   extensions: z.array(Extension),
 })
-export type Definition = z.infer<typeof Definition>
+type Definition = z.infer<typeof Definition>
+
+const ExtensionTuple = z.tuple([
+  z.string().regex(/^.*#.*$/),
+  ExtensionKind,
+  z.string(),
+])
+type ExtensionTuple = z.infer<typeof ExtensionTuple>
+
+export const AdditionalExtensions = z.array(ExtensionTuple)
+export type AdditionalExtensions = z.infer<typeof AdditionalExtensions>
 
 type DefinitionTuple = readonly [module: string, definition: Definition]
 
@@ -69,7 +79,12 @@ interface ParserOutput {
   symbol: Symbol
 }
 
-const make = (namespaces: SerializerConfig) => {
+const make = (
+  namespaces: NamespaceList,
+  additionalExtensions: AdditionalExtensions = [],
+) => {
+  const additional = additionalExtensionsRecord(additionalExtensions)
+
   const makeDefinitions = <
     R,
     E,
@@ -97,7 +112,10 @@ const make = (namespaces: SerializerConfig) => {
           {
             definitionName: a.symbol.name,
             definitionKind: a.kind,
-            extensions: extensions(a, config),
+            extensions: [
+              ...extensions(a, config),
+              ...(additional[a.typeName]?.[a.symbol.name] ?? []),
+            ],
           },
         ],
       ),
@@ -159,10 +177,50 @@ const make = (namespaces: SerializerConfig) => {
   return { definitions }
 }
 
+const additionalExtensionsRecord = (tuples: AdditionalExtensions) =>
+  tuples
+    .map(extensionFromTuple)
+    .reduce<Record<string, Record<string, Extension[]>>>(
+      (acc, { definitionName, extension }) => {
+        if (!acc[extension.typeName]) {
+          acc = {
+            ...acc,
+            [extension.typeName]: {},
+          }
+        }
+
+        const prev = acc[extension.typeName][definitionName] ?? []
+
+        return {
+          ...acc,
+          [extension.typeName]: {
+            ...acc[extension.typeName],
+            [definitionName]: [...prev, extension],
+          },
+        }
+      },
+      {},
+    )
+
+const extensionFromTuple = ([target, kind, name]: ExtensionTuple) => {
+  const [typeName, definitionName] = target.split("#")
+
+  const extension: Extension = {
+    typeName,
+    kind,
+    name,
+  }
+
+  return {
+    definitionName,
+    extension,
+  }
+}
+
 export interface Serializer extends ReturnType<typeof make> {}
 export const Serializer = Tag.Tag<Serializer>()
-export const makeLayer = (a: SerializerConfig) =>
-  Layer.fromValue(Serializer, () => make(a))
+export const makeLayer = (a: NamespaceList, b?: AdditionalExtensions) =>
+  Layer.fromValue(Serializer, () => make(a, b))
 
 export const definitions = Effect.serviceWithEffect(
   Serializer,

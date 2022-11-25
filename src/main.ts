@@ -8,7 +8,10 @@ const main = pipe(
   fromFile(process.argv[2]),
   Effect.flatMap((config) => {
     const ParserLive = Parser.make(config.project)
-    const SerializerLive = Serializer.makeLayer(config.namespaces)
+    const SerializerLive = Serializer.makeLayer(
+      config.namespaces,
+      config.additionalExtensions,
+    )
 
     return pipe(
       Serializer.definitions,

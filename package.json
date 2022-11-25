@@ -11,9 +11,7 @@
       "import": "./dist/*"
     }
   },
-  "bin": {
-    "tsplus-gen": "./dist/main.js"
-  },
+  "bin": "./dist/main.js",
   "devDependencies": {
     "@types/minimatch": "^5.1.2",
     "@types/node": "^18.11.9",

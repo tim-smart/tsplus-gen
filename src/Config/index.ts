@@ -3,7 +3,8 @@ import { z } from "zod"
 
 export const Config = z.object({
   project: Parser.TsProject,
-  namespaces: Serializer.SerializerConfig,
+  namespaces: Serializer.NamespaceList,
+  additionalExtensions: Serializer.AdditionalExtensions.optional(),
 })
 
 export const fromFile = (path: string) =>

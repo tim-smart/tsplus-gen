@@ -45,5 +45,12 @@
         "include": true
       }
     }
+  ],
+  "additionalExtensions": [
+    [
+      "tsplus-example/core/Test.Class#flatMap",
+      "operator",
+      ">"
+    ]
   ]
 }
