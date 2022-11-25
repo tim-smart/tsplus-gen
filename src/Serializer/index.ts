@@ -33,11 +33,11 @@ type KindConfig = z.infer<typeof KindConfig>
 
 const Namespace = z.object({
   name: z.string(),
-  fluent: KindConfig,
-  getter: KindConfig,
-  pipeable: KindConfig,
-  static: KindConfig,
-  type: KindConfig,
+  fluent: KindConfig.optional(),
+  getter: KindConfig.optional(),
+  pipeable: KindConfig.optional(),
+  static: KindConfig.optional(),
+  type: KindConfig.optional(),
   moduleFileExtension: z.string().optional(),
 })
 type Namespace = z.infer<typeof Namespace>
@@ -105,7 +105,7 @@ const make = (
           ] as const,
       ),
       Stream.filter(([, ns]) => !!ns),
-      Stream.filter(([, ns]) => ns[kind].include),
+      Stream.filter(([, ns]) => ns[kind]?.include ?? true),
       Stream.map(
         ([a, config]): DefinitionTuple => [
           `${a.module}${config.moduleFileExtension || ""}`,
@@ -122,13 +122,13 @@ const make = (
     )
 
   const ifStatic = (a: Namespace, extension: Extension) =>
-    a.static.include ? [extension] : []
+    a.static?.include ?? true ? [extension] : []
 
   const fluents = makeDefinitions("fluent", Parser.fluents, (a, c) => [
     { kind: "fluent", typeName: a.typeName, name: a.symbol.name },
     ...ifStatic(c, {
       kind: "static",
-      typeName: `${a.typeName}${c.fluent.suffix || ""}`,
+      typeName: `${a.typeName}${c.fluent?.suffix || ""}`,
       name: a.symbol.name,
     }),
   ])
@@ -136,7 +136,7 @@ const make = (
     { kind: "getter", typeName: a.typeName, name: a.symbol.name },
     ...ifStatic(c, {
       kind: "static",
-      typeName: `${a.typeName}${c.getter.suffix || ""}`,
+      typeName: `${a.typeName}${c.getter?.suffix || ""}`,
       name: a.symbol.name,
     }),
   ])
@@ -144,14 +144,14 @@ const make = (
     { kind: "pipeable", typeName: a.typeName, name: a.symbol.name },
     ...ifStatic(c, {
       kind: "static",
-      typeName: `${a.typeName}${c.pipeable.suffix || ""}`,
+      typeName: `${a.typeName}${c.pipeable?.suffix || ""}`,
       name: a.symbol.name,
     }),
   ])
   const statics = makeDefinitions("static", Parser.statics, (a, c) => [
     {
       kind: "static",
-      typeName: `${a.typeName}${c.static.suffix || ""}`,
+      typeName: `${a.typeName}${c.static?.suffix || ""}`,
       name: a.symbol.name,
     },
   ])
