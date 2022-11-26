@@ -3,20 +3,28 @@
   "version": "0.1.0",
   "type": "module",
   "packageManager": "yarn@3.3.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
-    ".": {
-      "import": "./dist/index.js"
-    },
     "./*": {
       "import": "./dist/*"
     }
   },
+  "files": [
+    "dist/**/*"
+  ],
   "bin": "./dist/main.js",
+  "scripts": {
+    "clean": "rimraf dist",
+    "tsc": "tsc",
+    "prepublishOnly": "yarn clean && yarn tsc"
+  },
   "devDependencies": {
     "@types/minimatch": "^5.1.2",
     "@types/node": "^18.11.9",
     "prettier": "^2.8.0",
-    "ts-node": "^10.9.1",
+    "rimraf": "^3.0.2",
     "tsconfig-paths": "^4.1.0"
   },
   "dependencies": {
