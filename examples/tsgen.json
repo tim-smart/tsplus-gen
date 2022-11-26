@@ -1,37 +1,20 @@
 {
   "project": {
-    "moduleName": "@tsplus-example/core",
+    "packageName": "@tsplus-example/core",
     "baseDir": "examples",
     "tsconfig": "tsconfig.json",
-    "paths": []
+    "paths": [],
+    "staticPrefixes": ["from", "make"]
   },
   "namespaces": [
     {
-      "name": "tsplus-example/core",
-      "fluent": {
-        "include": true
-      },
-      "getter": {
-        "include": true
-      },
-      "pipeable": {
-        "include": true
-      },
-      "static": {
-        "include": true
-      },
-      "type": {
-        "include": true
-      }
+      "name": "tsplus-example/core"
     },
     {
       "name": "effect/core/io",
       "fluent": {
         "include": true,
         "suffix": ".Ops"
-      },
-      "getter": {
-        "include": true
       },
       "pipeable": {
         "include": true,
@@ -40,17 +23,13 @@
       "static": {
         "include": true,
         "suffix": ".Ops"
-      },
-      "type": {
-        "include": true
       }
+    },
+    {
+      "name": "ReadonlyArray"
     }
   ],
   "additionalExtensions": [
-    [
-      "tsplus-example/core/Test.Class#flatMap",
-      "operator",
-      ">"
-    ]
+    ["tsplus-example/core/Test.Class#flatMap", "operator", ">"]
   ]
 }

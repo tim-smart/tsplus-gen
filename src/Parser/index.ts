@@ -13,10 +13,6 @@ import * as Path from "path"
 import { z } from "zod"
 import Minimatch from "minimatch"
 
-export const TypeAlias = z.object({
-  module: z.string(),
-})
-
 export const Config = z.object({
   packageName: z.string(),
   baseDir: z.string(),
@@ -57,9 +53,10 @@ const rootNames = (baseDir: string) => {
 
 const makeParser = ({
   baseDir,
-  packageName: moduleName,
+  packageName,
   tsconfig,
   paths,
+  staticPrefixes = [],
 }: Config) =>
   Effect.gen(function* ($) {
     const options = yield* $(compilerOptions(tsconfig))
@@ -100,9 +97,15 @@ const makeParser = ({
         Maybe.flatMap(getTypeInformation),
       )
 
-    const fluentTypeInformation = (signature: Ts.Signature) =>
+    const hasStaticPrefix = (name: string) =>
+      staticPrefixes.some((prefix) => name.startsWith(prefix))
+
+    const fluentTypeInformation = (name: string) => (signature: Ts.Signature) =>
       pipe(
-        Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
+        Maybe.fromPredicate(
+          signature,
+          (a) => !hasStaticPrefix(name) && a.getParameters().length > 1,
+        ),
         Maybe.flatMap((a) =>
           Maybe.struct({
             firstParamType: getFirstParamType(a),
@@ -115,9 +118,12 @@ const makeParser = ({
         ),
       )
 
-    const getterTypeInformation = (signature: Ts.Signature) =>
+    const getterTypeInformation = (name: string) => (signature: Ts.Signature) =>
       pipe(
-        Maybe.fromPredicate(signature, (a) => a.getParameters().length === 1),
+        Maybe.fromPredicate(
+          signature,
+          (a) => !hasStaticPrefix(name) && a.getParameters().length === 1,
+        ),
         Maybe.filter((a) => a.getReturnType().getCallSignatures().length === 0),
         Maybe.flatMap((a) =>
           Maybe.struct({
@@ -160,7 +166,7 @@ const makeParser = ({
       file.match(/.*\/node_modules\/(.*)/)![1]
 
     const getInternalModulePath = (file: string) =>
-      `${moduleName}/${Path.relative(baseDir, file)}`
+      `${packageName}/${Path.relative(baseDir, file)}`
 
     const getTypeInformation = (type: Ts.Type) =>
       pipe(
@@ -175,7 +181,6 @@ const makeParser = ({
         Maybe.map(({ name, sourceFile }) => ({
           type,
           name,
-          sourceFile,
           typeName: getTargetString(sourceFile, name),
         })),
       )
@@ -185,7 +190,9 @@ const makeParser = ({
       const baseName = Path.basename(namespace)
       const namespaceWithoutSlashes = namespace.replaceAll("/", "")
 
-      if (name === baseName) {
+      if (namespace.startsWith("typescript/")) {
+        return name
+      } else if (name === baseName) {
         return namespace
       } else if (name.startsWith(baseName)) {
         return `${namespace}.${name.slice(baseName.length)}`
@@ -247,7 +254,7 @@ const makeParser = ({
 
     const getters = callables.flatMap((a) =>
       pipe(
-        getterTypeInformation(a.callSignature),
+        getterTypeInformation(a.symbol.getName())(a.callSignature),
         Maybe.fold(
           () => [],
           (self) => [
@@ -266,7 +273,7 @@ const makeParser = ({
           a.callSignature,
           (a) => a.getReturnType().getCallSignatures().length === 0,
         ),
-        Maybe.flatMap(fluentTypeInformation),
+        Maybe.flatMap(fluentTypeInformation(a.symbol.getName())),
         Maybe.fold(
           () => [],
           (info) => ({
@@ -278,6 +285,7 @@ const makeParser = ({
     )
 
     const pipeables = callables
+      .filter((a) => !hasStaticPrefix(a.symbol.getName()))
       .filter((a) => isPipeableReturnType(a.returnType))
       .map((a) => ({
         ...a,
@@ -306,8 +314,12 @@ const makeParser = ({
     const statics = callables
       .filter(
         (a) =>
-          Maybe.isNone(fluentTypeInformation(a.callSignature)) &&
-          Maybe.isNone(getterTypeInformation(a.callSignature)) &&
+          Maybe.isNone(
+            fluentTypeInformation(a.symbol.getName())(a.callSignature),
+          ) &&
+          Maybe.isNone(
+            getterTypeInformation(a.symbol.getName())(a.callSignature),
+          ) &&
           a.returnType.getCallSignatures().length === 0,
       )
       .flatMap((a) =>
