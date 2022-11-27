@@ -1,4 +1,12 @@
-import { Effect, Layer, Parser, pipe, Stream, Tag } from "tsplus-gen/common.js"
+import {
+  Effect,
+  Layer,
+  Maybe,
+  Parser,
+  pipe,
+  Stream,
+  Tag,
+} from "tsplus-gen/common.js"
 import { Symbol } from "typescript"
 import { z } from "zod"
 
@@ -22,23 +30,28 @@ const Extension = z.object({
   kind: ExtensionKind,
   typeName: z.string(),
   name: z.string().optional(),
+  priority: z.string().optional(),
 })
 type Extension = z.infer<typeof Extension>
 
 const KindConfig = z.object({
   include: z.boolean(),
   suffix: z.string().optional(),
+  priority: z.number().optional(),
 })
 type KindConfig = z.infer<typeof KindConfig>
 
 const Namespace = z.object({
   name: z.string(),
+  priority: z.number().optional(),
+  moduleFileExtension: z.string().optional(),
+  modulePriority: z.record(z.number()).optional(),
+  exclude: z.array(z.string()).optional(),
   fluent: KindConfig.optional(),
   getter: KindConfig.optional(),
   pipeable: KindConfig.optional(),
   static: KindConfig.optional(),
   type: KindConfig.optional(),
-  moduleFileExtension: z.string().optional(),
 })
 type Namespace = z.infer<typeof Namespace>
 
@@ -60,10 +73,9 @@ const Definition = z.object({
 })
 type Definition = z.infer<typeof Definition>
 
-const ExtensionTuple = z.tuple([
-  z.string().regex(/^.*#.*$/),
-  ExtensionKind,
-  z.string(),
+const ExtensionTuple = z.union([
+  z.tuple([z.string().regex(/^.*#.*$/), ExtensionKind, z.string()]),
+  z.tuple([z.string().regex(/^.*#.*$/), ExtensionKind, z.string(), z.number()]),
 ])
 type ExtensionTuple = z.infer<typeof ExtensionTuple>
 
@@ -93,68 +105,107 @@ const make = (
   >(
     kind: K,
     self: Stream.Stream<R, E, A>,
-    extensions: (a: ParserOutput, config: Namespace) => Extension[],
+    extensions: (
+      a: ParserOutput,
+      config: Namespace,
+      priority?: string,
+    ) => Extension[],
   ) =>
     pipe(
       self,
-      Stream.map(
-        (a) =>
-          [
-            a,
-            namespaces.find((ns) => a.typeName.startsWith(ns.name))!,
-          ] as const,
-      ),
+      Stream.map((a) => [a, findNamespace(namespaces, a.typeName)] as const),
       Stream.filter(([, ns]) => !!ns),
       Stream.filter(([, ns]) => ns[kind]?.include ?? true),
-      Stream.map(
-        ([a, config]): DefinitionTuple => [
+      Stream.filter(
+        ([a, ns]) =>
+          !(ns.exclude?.includes(`${a.module}#${a.symbol.name}`) ?? false),
+      ),
+      Stream.map(([a, config]): DefinitionTuple => {
+        const kindPriority = config[kind]?.priority?.toString()
+        const nsPriority = config.priority?.toString()
+        const modulePriority = findModulePriority(config, a.module)?.toString()
+        const resolvedPriority = kindPriority ?? nsPriority ?? modulePriority
+
+        return [
           `${a.module}${config.moduleFileExtension || ""}`,
           {
             definitionName: a.symbol.name,
             definitionKind: a.kind,
             extensions: [
-              ...extensions(a, config),
+              ...extensions(a, config, resolvedPriority),
               ...(additional[a.typeName]?.[a.symbol.name] ?? []),
             ],
           },
-        ],
-      ),
+        ]
+      }),
     )
 
   const ifStatic = (a: Namespace, extension: Extension) =>
     a.static?.include ?? true ? [extension] : []
 
-  const fluents = makeDefinitions("fluent", Parser.fluents, (a, c) => [
-    { kind: "fluent", typeName: a.typeName, name: a.symbol.name },
-    ...ifStatic(c, {
-      kind: "static",
-      typeName: `${a.typeName}${c.fluent?.suffix || ""}`,
-      name: a.symbol.name,
-    }),
-  ])
-  const getters = makeDefinitions("getter", Parser.getters, (a, c) => [
-    { kind: "getter", typeName: a.typeName, name: a.symbol.name },
-    ...ifStatic(c, {
-      kind: "static",
-      typeName: `${a.typeName}${c.getter?.suffix || ""}`,
-      name: a.symbol.name,
-    }),
-  ])
-  const pipeables = makeDefinitions("pipeable", Parser.pipeables, (a, c) => [
-    { kind: "pipeable", typeName: a.typeName, name: a.symbol.name },
-    ...ifStatic(c, {
-      kind: "static",
-      typeName: `${a.typeName}${c.pipeable?.suffix || ""}`,
-      name: a.symbol.name,
-    }),
-  ])
-  const statics = makeDefinitions("static", Parser.statics, (a, c) => [
-    {
-      kind: "static",
-      typeName: `${a.typeName}${c.static?.suffix || ""}`,
-      name: a.symbol.name,
-    },
-  ])
+  const fluents = makeDefinitions(
+    "fluent",
+    Parser.fluents,
+    (a, c, priority) => [
+      {
+        kind: "fluent",
+        typeName: a.typeName,
+        name: a.symbol.name,
+        priority,
+      },
+      ...ifStatic(c, {
+        kind: "static",
+        typeName: `${a.typeName}${c.fluent?.suffix || ""}`,
+        name: a.symbol.name,
+      }),
+    ],
+  )
+  const getters = makeDefinitions(
+    "getter",
+    Parser.getters,
+    (a, c, priority) => [
+      {
+        kind: "getter",
+        typeName: a.typeName,
+        name: a.symbol.name,
+        priority,
+      },
+      ...ifStatic(c, {
+        kind: "static",
+        typeName: `${a.typeName}${c.getter?.suffix || ""}`,
+        name: a.symbol.name,
+      }),
+    ],
+  )
+  const pipeables = makeDefinitions(
+    "pipeable",
+    Parser.pipeables,
+    (a, c, priority) => [
+      {
+        kind: "pipeable",
+        typeName: a.typeName,
+        name: a.symbol.name,
+        priority,
+      },
+      ...ifStatic(c, {
+        kind: "static",
+        typeName: `${a.typeName}${c.pipeable?.suffix || ""}`,
+        name: a.symbol.name,
+      }),
+    ],
+  )
+  const statics = makeDefinitions(
+    "static",
+    Parser.statics,
+    (a, c, priority) => [
+      {
+        kind: "static",
+        typeName: `${a.typeName}${c.static?.suffix || ""}`,
+        name: a.symbol.name,
+        priority,
+      },
+    ],
+  )
   const types = makeDefinitions("type", Parser.types, (a) => [
     { kind: "type", typeName: a.typeName },
   ])
@@ -202,19 +253,43 @@ const additionalExtensionsRecord = (tuples: AdditionalExtensions) =>
       {},
     )
 
-const extensionFromTuple = ([target, kind, name]: ExtensionTuple) => {
+const extensionFromTuple = ([target, kind, name, priority]: ExtensionTuple) => {
   const [typeName, definitionName] = target.split("#")
 
   const extension: Extension = {
     typeName,
     kind,
     name,
+    priority: priority?.toString(),
   }
 
   return {
     definitionName,
     extension,
   }
+}
+
+const findNamespace = (namespaces: NamespaceList, typeName: string) => {
+  const candidates = namespaces.filter((ns) => typeName.startsWith(ns.name))
+  candidates.sort((a, b) => b.name.length - a.name.length)
+  return candidates[0]!
+}
+
+const findModulePriority = (
+  { modulePriority = {} }: Namespace,
+  module: string,
+) => {
+  const candidates = Object.entries(modulePriority).filter(([a]) =>
+    module.startsWith(a),
+  )
+
+  candidates.sort((a, b) => b[0].length - a[0].length)
+
+  return pipe(
+    Maybe.fromNullable(candidates[0]),
+    Maybe.map((a) => a[1]),
+    Maybe.toUndefined,
+  )
 }
 
 export interface Serializer extends ReturnType<typeof make> {}

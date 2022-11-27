@@ -4,7 +4,9 @@ export * as Stream from "@effect/core/stream/Stream"
 
 export * as Chunk from "@tsplus/stdlib/collections/Chunk"
 export * as Collection from "@tsplus/stdlib/collections/Collection"
+export * as ImmutableArray from "@tsplus/stdlib/collections/ImmutableArray"
 export * as Maybe from "@tsplus/stdlib/data/Maybe"
+export * as Ord from "@tsplus/stdlib/prelude/Ord"
 export * as Tag from "@tsplus/stdlib/service/Tag"
 export { pipe } from "@tsplus/stdlib/data/Function"
 
