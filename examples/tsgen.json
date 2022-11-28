@@ -14,15 +14,18 @@
       "name": "effect/core/io",
       "fluent": {
         "include": true,
-        "suffix": ".Ops"
+        "includeStatic": true,
+        "staticSuffix": ".Ops"
       },
       "pipeable": {
         "include": true,
-        "suffix": ".Aspects"
+        "includeStatic": true,
+        "staticSuffix": ".Aspects"
       },
       "static": {
         "include": true,
-        "suffix": ".Ops"
+        "includeStatic": true,
+        "staticSuffix": ".Ops"
       }
     },
     {

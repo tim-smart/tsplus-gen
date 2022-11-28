@@ -36,7 +36,8 @@ type Extension = z.infer<typeof Extension>
 
 const KindConfig = z.object({
   include: z.boolean(),
-  suffix: z.string().optional(),
+  includeStatic: z.boolean().optional(),
+  staticSuffix: z.string().optional(),
   priority: z.number().optional(),
 })
 type KindConfig = z.infer<typeof KindConfig>
@@ -105,11 +106,7 @@ const make = (
   >(
     kind: K,
     self: Stream.Stream<R, E, A>,
-    extensions: (
-      a: ParserOutput,
-      config: Namespace,
-      priority?: string,
-    ) => Extension[],
+    includeStatic = true,
   ) =>
     pipe(
       self,
@@ -120,95 +117,57 @@ const make = (
         ([a, ns]) =>
           !(ns.exclude?.includes(`${a.module}#${a.symbol.name}`) ?? false),
       ),
-      Stream.map(([a, config]): DefinitionTuple => {
-        const kindPriority = config[kind]?.priority?.toString()
-        const nsPriority = config.priority?.toString()
-        const modulePriority = findModulePriority(config, a.module)?.toString()
-        const resolvedPriority = kindPriority ?? nsPriority ?? modulePriority
-
-        return [
-          `${a.module}${config.moduleFileExtension || ""}`,
-          {
-            definitionName: a.symbol.name,
-            definitionKind: a.kind,
-            extensions: [
-              ...extensions(a, config, resolvedPriority),
-              ...(additional[a.typeName]?.[a.symbol.name] ?? []),
-            ],
-          },
-        ]
-      }),
+      Stream.map(([a, config]) =>
+        makeDefinitionTuple(kind, a, config, includeStatic),
+      ),
     )
 
-  const ifStatic = (a: Namespace, extension: Extension) =>
-    a.static?.include ?? true ? [extension] : []
+  const makeDefinitionTuple = (
+    kind: ExtensionKindBasic,
+    a: ParserOutput,
+    ns: Namespace,
+    allowStatic: boolean,
+  ): DefinitionTuple => {
+    const config = ns[kind]
+    const kindPriority = config?.priority?.toString()
+    const nsPriority = ns.priority?.toString()
+    const modulePriority = findModulePriority(ns, a.module)?.toString()
+    const priority = kindPriority ?? nsPriority ?? modulePriority
 
-  const fluents = makeDefinitions(
-    "fluent",
-    Parser.fluents,
-    (a, c, priority) => [
+    const includeStatic = allowStatic && (config?.includeStatic ?? false)
+
+    return [
+      `${a.module}${ns.moduleFileExtension || ""}`,
       {
-        kind: "fluent",
-        typeName: a.typeName,
-        name: a.symbol.name,
-        priority,
+        definitionName: a.symbol.name,
+        definitionKind: a.kind,
+        extensions: [
+          {
+            kind,
+            typeName: a.typeName,
+            name: kind !== "type" ? a.symbol.name : undefined,
+            priority,
+          },
+          ...(includeStatic
+            ? [
+                {
+                  kind: "static",
+                  typeName: `${a.typeName}${config?.staticSuffix || ""}`,
+                  name: a.symbol.name,
+                } as Extension,
+              ]
+            : []),
+          ...(additional[a.typeName]?.[a.symbol.name] ?? []),
+        ],
       },
-      ...ifStatic(c, {
-        kind: "static",
-        typeName: `${a.typeName}${c.fluent?.suffix || ""}`,
-        name: a.symbol.name,
-      }),
-    ],
-  )
-  const getters = makeDefinitions(
-    "getter",
-    Parser.getters,
-    (a, c, priority) => [
-      {
-        kind: "getter",
-        typeName: a.typeName,
-        name: a.symbol.name,
-        priority,
-      },
-      ...ifStatic(c, {
-        kind: "static",
-        typeName: `${a.typeName}${c.getter?.suffix || ""}`,
-        name: a.symbol.name,
-      }),
-    ],
-  )
-  const pipeables = makeDefinitions(
-    "pipeable",
-    Parser.pipeables,
-    (a, c, priority) => [
-      {
-        kind: "pipeable",
-        typeName: a.typeName,
-        name: a.symbol.name,
-        priority,
-      },
-      ...ifStatic(c, {
-        kind: "static",
-        typeName: `${a.typeName}${c.pipeable?.suffix || ""}`,
-        name: a.symbol.name,
-      }),
-    ],
-  )
-  const statics = makeDefinitions(
-    "static",
-    Parser.statics,
-    (a, c, priority) => [
-      {
-        kind: "static",
-        typeName: `${a.typeName}${c.static?.suffix || ""}`,
-        name: a.symbol.name,
-        priority,
-      },
-    ],
-  )
-  const types = makeDefinitions("type", Parser.types, (a) => [
-    { kind: "type", typeName: a.typeName },
-  ])
+    ]
+  }
+
+  const fluents = makeDefinitions("fluent", Parser.fluents)
+  const getters = makeDefinitions("getter", Parser.getters)
+  const pipeables = makeDefinitions("pipeable", Parser.pipeables)
+  const statics = makeDefinitions("static", Parser.statics, false)
+  const types = makeDefinitions("type", Parser.types, false)
 
   const definitions = pipe(
     fluents,
