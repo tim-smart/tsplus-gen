@@ -1,8 +1,19 @@
 #!/usr/bin/env node
 
-import { Effect, Parser, pipe, Serializer } from "./common.js"
+import { Effect, Fs, Maybe, Parser, pipe, Serializer } from "./common.js"
 import { fromFile } from "./Config/index.js"
 import { FsLive } from "./Fs/index.js"
+import * as Path from "path"
+
+const outputFile = Maybe.fromNullable(process.argv[3])
+
+const writeOutput = (path: string, u: unknown) =>
+  pipe(
+    Effect.sync(() => JSON.stringify(u, null, 2)),
+    Effect.tap(() => Fs.mkdir(Path.dirname(path), { recursive: true })),
+    Effect.tap((a) => Fs.writeFile(path, a)),
+    Effect.asUnit,
+  )
 
 const main = pipe(
   fromFile(process.argv[2]),
@@ -20,9 +31,16 @@ const main = pipe(
     )
   }),
   Effect.tap((a) =>
-    Effect.sync(() => {
-      console.log(JSON.stringify(a, null, 2))
-    }),
+    pipe(
+      outputFile,
+      Maybe.fold(
+        () =>
+          Effect.sync(() => {
+            console.log(JSON.stringify(a, null, 2))
+          }),
+        (path) => writeOutput(path, a),
+      ),
+    ),
   ),
 )
 
