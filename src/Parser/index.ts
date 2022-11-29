@@ -1,7 +1,6 @@
 import {
-  Collection,
   Effect,
-  Fs,
+  Either,
   Layer,
   Maybe,
   pipe,
@@ -15,11 +14,11 @@ import Minimatch from "minimatch"
 
 export const Config = z.object({
   packageName: z.string(),
-  baseDir: z.string(),
   tsconfig: z.string(),
-  paths: z.array(z.string()),
+  rootDir: z.string(),
+  exclude: z.array(z.string()).optional(),
   staticPrefixes: z.array(z.string()).optional(),
-  getterNamespaces: z.array(z.string()),
+  getterNamespaces: z.array(z.string()).optional(),
 })
 export type Config = z.infer<typeof Config>
 
@@ -28,46 +27,46 @@ export class TsconfigParseError {
   constructor(readonly reason: unknown) {}
 }
 
-const compilerOptions = (path: string) =>
-  pipe(
-    Fs.readFile(path),
-    Effect.flatMap((buffer) =>
-      Effect.tryCatch(
-        () => JSON.parse(buffer.toString("utf8")),
-        (reason) => new TsconfigParseError(reason),
-      ),
-    ),
-    Effect.map(
-      (json) =>
-        Ts.convertCompilerOptionsFromJson(json.compilerOptions, ".").options,
-    ),
-  )
-
-const rootNames = (baseDir: string) => {
-  return pipe(
-    Fs.walk(baseDir),
-    Stream.filter((a) => a.endsWith(".ts")),
-    Stream.runCollect,
-    Effect.map(Collection.toArray),
-  )
+export class CreateProgramError {
+  readonly _tag = "CreateProgramError"
+  constructor(readonly message: string) {}
 }
 
+const createProgram = (tsconfig: string) =>
+  pipe(
+    Either.fromNullable(
+      Ts.findConfigFile(process.cwd(), Ts.sys.fileExists, tsconfig),
+      () => new CreateProgramError("could not find config file"),
+    ),
+    Either.flatMap((a) =>
+      Either.fromNullable(
+        Ts.readConfigFile(a, Ts.sys.readFile),
+        () => new CreateProgramError("could not read config file"),
+      ),
+    ),
+    Either.map((a) => Ts.parseJsonConfigFileContent(a, Ts.sys, process.cwd())),
+    Either.map(({ options, fileNames, errors }) =>
+      Ts.createProgram({
+        options,
+        rootNames: fileNames,
+        configFileParsingDiagnostics: errors,
+      }),
+    ),
+  )
+
 const makeParser = ({
-  baseDir,
   packageName,
+  rootDir,
   tsconfig,
-  paths,
+  exclude = [],
   staticPrefixes = [],
   getterNamespaces = [],
 }: Config) =>
   Effect.gen(function* ($) {
-    const options = yield* $(compilerOptions(tsconfig))
-    const program = Ts.createProgram({
-      rootNames: yield* $(rootNames(baseDir)),
-      options,
-    })
+    const baseDir = Path.join(process.cwd(), rootDir)
+    const program = yield* $(Effect.fromEither(createProgram(tsconfig)))
 
-    const pathRes = paths
+    const excludeREs = exclude
       .map((a) => Minimatch.makeRe(a))
       .filter((a): a is RegExp => a !== false)
 
@@ -75,8 +74,9 @@ const makeParser = ({
 
     const sourceFiles = program
       .getSourceFiles()
+      .filter((a) => a.fileName.startsWith(baseDir))
       .filter((a) => !a.isDeclarationFile)
-      .filter((a) => pathRes.every((re) => re.test(a.fileName)))
+      .filter((a) => !excludeREs.some((re) => re.test(a.fileName)))
 
     const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
       checker

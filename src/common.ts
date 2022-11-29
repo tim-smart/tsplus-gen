@@ -4,11 +4,12 @@ export * as Stream from "@effect/core/stream/Stream"
 
 export * as Chunk from "@tsplus/stdlib/collections/Chunk"
 export * as Collection from "@tsplus/stdlib/collections/Collection"
+export * as Either from "@tsplus/stdlib/data/Either"
 export * as ImmutableArray from "@tsplus/stdlib/collections/ImmutableArray"
 export * as Maybe from "@tsplus/stdlib/data/Maybe"
 export * as Ord from "@tsplus/stdlib/prelude/Ord"
 export * as Tag from "@tsplus/stdlib/service/Tag"
-export { pipe } from "@tsplus/stdlib/data/Function"
+export { pipe, identity } from "@tsplus/stdlib/data/Function"
 
 export * as Fs from "tsplus-gen/Fs/index.js"
 export * as Parser from "tsplus-gen/Parser/index.js"

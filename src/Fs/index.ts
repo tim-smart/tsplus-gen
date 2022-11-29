@@ -1,6 +1,5 @@
 import * as NodeFs from "fs"
-import * as Path from "path"
-import { Effect, Layer, pipe, Stream, Tag } from "tsplus-gen/common.js"
+import { Effect, Layer, Tag } from "tsplus-gen/common.js"
 
 const makeFs = () => {
   const readdir = (path: string) =>
@@ -47,28 +46,10 @@ const makeFs = () => {
       }),
     )
 
-  const walk = (
-    path: string,
-  ): Stream.Stream<never, NodeJS.ErrnoException, string> =>
-    pipe(
-      Stream.fromEffect(readdir(path)),
-      Stream.flatMap(Stream.fromCollection),
-      Stream.flatMap((file) => {
-        if (file.isFile()) {
-          return Stream.succeed(Path.join(path, file.name))
-        } else if (file.isDirectory()) {
-          return walk(Path.join(path, file.name))
-        }
-
-        return Stream.empty
-      }),
-    )
-
   return {
     readdir,
     readFile,
     writeFile,
-    walk,
     mkdir,
   } as const
 }
@@ -82,5 +63,3 @@ export const { readdir, readFile, writeFile, mkdir } = Effect.deriveLifted(Fs)(
   [],
   [],
 )
-export const walk = (path: string) =>
-  Stream.serviceWithStream(Fs, (fs) => fs.walk(path))

@@ -1,9 +1,8 @@
 {
   "project": {
     "packageName": "@tsplus-example/core",
-    "baseDir": "examples",
+    "rootDir": "examples",
     "tsconfig": "tsconfig.json",
-    "paths": [],
     "staticPrefixes": ["from", "make"]
   },
   "namespaces": [
