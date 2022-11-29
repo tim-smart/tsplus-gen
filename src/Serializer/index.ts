@@ -36,6 +36,7 @@ type Extension = z.infer<typeof Extension>
 
 const KindConfig = z.object({
   include: z.boolean(),
+  includeCompanion: z.boolean().optional(),
   includeStatic: z.boolean().optional(),
   staticSuffix: z.string().optional(),
   priority: z.number().optional(),
@@ -154,6 +155,14 @@ const make = (
                   kind: "static",
                   typeName: `${a.typeName}${config?.staticSuffix || ""}`,
                   name: a.symbol.name,
+                } as Extension,
+              ]
+            : []),
+          ...(config?.includeCompanion
+            ? [
+                {
+                  kind: "companion",
+                  typeName: a.typeName,
                 } as Extension,
               ]
             : []),
