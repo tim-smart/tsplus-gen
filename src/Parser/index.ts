@@ -78,10 +78,13 @@ const makeParser = ({
       .filter((a) => !a.isDeclarationFile)
       .filter((a) => !excludeREs.some((re) => re.test(a.fileName)))
 
-    const exportsFromSourceFile = (sourceFile: Ts.SourceFile) =>
-      checker
-        .getExportsOfModule(checker.getSymbolAtLocation(sourceFile)!)
+    const exportsFromSourceFile = (sourceFile: Ts.SourceFile) => {
+      const symbol = checker.getSymbolAtLocation(sourceFile)
+      if (!symbol) return []
+      return checker
+        .getExportsOfModule(symbol)
         .map((symbol) => ({ sourceFile, symbol }))
+    }
 
     const getSymbolType = (symbol: Ts.Symbol) =>
       checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration!)
@@ -105,17 +108,22 @@ const makeParser = ({
       pipe(
         Maybe.fromNullable(signature.getParameters()?.[0]),
         Maybe.map(getSymbolType),
-        Maybe.filter((a) => a.getCallSignatures().length === 0),
+        Maybe.filter((a) => nonFunctionReturnType(a)),
         Maybe.flatMap(getTypeInformation),
       )
 
     const nonFunctionReturnType = (type: Ts.Type) => {
       const symbol = type.aliasSymbol ?? type.symbol
+      const isType = symbol
+        ?.getDeclarations()
+        ?.some(
+          (a) =>
+            Ts.isClassDeclaration(a) ||
+            Ts.isTypeAliasDeclaration(a) ||
+            Ts.isInterfaceDeclaration(a),
+        )
 
-      if (
-        !symbol ||
-        checker.getDeclaredTypeOfSymbol(symbol).isClassOrInterface()
-      ) {
+      if (!symbol || isType === true) {
         return true
       } else if (type.getCallSignatures().length === 0) {
         return true
@@ -130,17 +138,41 @@ const makeParser = ({
     const fluentTypeInformation = (signature: Ts.Signature) =>
       pipe(
         Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
+        Maybe.filter((signature) =>
+          nonFunctionReturnType(signature.getReturnType()),
+        ),
         Maybe.flatMap(() =>
           Maybe.struct({
             firstParamType: getFirstParamType(signature),
             returnType: pipe(getReturnType(signature), getTypeInformation),
           }),
         ),
-        Maybe.filter(
-          ({ firstParamType, returnType }) =>
-            firstParamType.typeName === returnType.typeName,
+        Maybe.filter((a) =>
+          isExportedInGetterNamespace(
+            a.firstParamType.type,
+            a.firstParamType.typeName,
+          ),
         ),
       )
+
+    const isExportedInGetterNamespace = (type: Ts.Type, typeName: string) => {
+      const symbol = type.aliasSymbol ?? type.symbol
+      if (!symbol) {
+        return false
+      } else if (!getterNamespaces.some((ns) => typeName.startsWith(ns))) {
+        return false
+      }
+
+      return (
+        symbol
+          .getDeclarations()
+          ?.some((a) =>
+            exportsFromSourceFile(a.getSourceFile()).some(
+              (a) => a.symbol.name === symbol.name,
+            ),
+          ) === true
+      )
+    }
 
     const getterTypeInformation = (signature: Ts.Signature) =>
       pipe(
@@ -152,8 +184,9 @@ const makeParser = ({
           }),
         ),
         Maybe.filter((a) =>
-          getterNamespaces.some((ns) =>
-            a.firstParamType.typeName.startsWith(ns),
+          isExportedInGetterNamespace(
+            a.firstParamType.type,
+            a.firstParamType.typeName,
           ),
         ),
       )
