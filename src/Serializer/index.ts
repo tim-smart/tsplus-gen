@@ -37,6 +37,7 @@ type Extension = z.infer<typeof Extension>
 const KindConfig = z.object({
   include: z.boolean(),
   includeCompanion: z.boolean().optional(),
+  companionSuffix: z.string().optional(),
   includeStatic: z.boolean().optional(),
   staticSuffix: z.string().optional(),
   priority: z.number().optional(),
@@ -146,7 +147,11 @@ const make = (
         extensions: [
           {
             kind,
-            typeName: a.typeName,
+            typeName: `${a.typeName}${
+              kind === "static" && config?.staticSuffix
+                ? config.staticSuffix
+                : ""
+            }`,
             name: kind !== "type" ? a.symbol.name : undefined,
             priority,
           },
@@ -165,7 +170,7 @@ const make = (
             ? [
                 {
                   kind: "companion",
-                  typeName: a.typeName,
+                  typeName: `${a.typeName}${config.companionSuffix ?? ""}`,
                 } as Extension,
               ]
             : []),
