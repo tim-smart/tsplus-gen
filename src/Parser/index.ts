@@ -19,6 +19,7 @@ export const Config = z.object({
   exclude: z.array(z.string()).optional(),
   staticPrefixes: z.array(z.string()).optional(),
   getterNamespaces: z.array(z.string()).optional(),
+  fluentNamespaces: z.array(z.string()).optional(),
 })
 export type Config = z.infer<typeof Config>
 
@@ -60,7 +61,7 @@ const makeParser = ({
   tsconfig,
   exclude = [],
   staticPrefixes = [],
-  getterNamespaces = [],
+  fluentNamespaces = [],
 }: Config) =>
   Effect.gen(function* ($) {
     const baseDir = Path.join(process.cwd(), rootDir)
@@ -101,6 +102,14 @@ const makeParser = ({
 
       return getFinalReturnType(returnType.getCallSignatures()[0])
     }
+
+    const getFinalReturnTypeName = (signature: Ts.Signature) =>
+      pipe(
+        getFinalReturnType(signature),
+        getTypeInformation,
+        Maybe.map((a) => a.typeName),
+        Maybe.toUndefined,
+      )
 
     const exported = sourceFiles.flatMap(exportsFromSourceFile)
 
@@ -148,18 +157,18 @@ const makeParser = ({
           }),
         ),
         Maybe.filter((a) =>
-          isExportedInGetterNamespace(
+          isExportedInFluentNamespace(
             a.firstParamType.type,
             a.firstParamType.typeName,
           ),
         ),
       )
 
-    const isExportedInGetterNamespace = (type: Ts.Type, typeName: string) => {
+    const isExportedInFluentNamespace = (type: Ts.Type, typeName: string) => {
       const symbol = type.aliasSymbol ?? type.symbol
       if (!symbol) {
         return false
-      } else if (!getterNamespaces.some((ns) => typeName.startsWith(ns))) {
+      } else if (!fluentNamespaces.some((ns) => typeName.startsWith(ns))) {
         return false
       }
 
@@ -186,7 +195,7 @@ const makeParser = ({
           }),
         ),
         Maybe.filter((a) =>
-          isExportedInGetterNamespace(
+          isExportedInFluentNamespace(
             a.firstParamType.type,
             a.firstParamType.typeName,
           ),
@@ -275,27 +284,34 @@ const makeParser = ({
         (a) => Object.values(a),
       )
 
-    const exportedWithDeclarations = exported
-      .flatMap((a) =>
-        uniqueNodesForSymbol(a.symbol).map((node) => ({
-          ...a,
-          node,
-        })),
-      )
-      .map(({ symbol, sourceFile, node }) => {
-        const type = checker.getTypeOfSymbolAtLocation(symbol, node)
-        const module = getModuleFromSourceFile(sourceFile)
-        const typeName = getTargetString(sourceFile, symbol.name)
+    const exportedWithDeclarations = pipe(
+      exported
+        .flatMap((a) =>
+          uniqueNodesForSymbol(a.symbol).map((node) => ({
+            ...a,
+            node,
+            sourceFile: node.getSourceFile(),
+          })),
+        )
+        .map(({ symbol, sourceFile, node }) => {
+          const type = checker.getTypeOfSymbolAtLocation(symbol, node)
+          const module = getModuleFromSourceFile(sourceFile)
+          const typeName = getTargetString(sourceFile, symbol.name)
 
-        return {
-          symbol,
-          node,
-          type,
-          sourceFile,
-          module,
-          typeName,
-        }
-      })
+          const exported = {
+            symbol,
+            node,
+            type,
+            sourceFile,
+            module,
+            typeName,
+          }
+
+          return [`${module}.${symbol.name}.${node.kind}`, exported] as const
+        }),
+      (a) => Object.fromEntries(a),
+      (a) => Object.values(a),
+    )
 
     const filterExports = <K extends string, A extends Ts.Node>(
       kind: K,
@@ -361,6 +377,7 @@ const makeParser = ({
         Maybe.map((self) => ({
           ...a,
           typeName: self.firstParamType.typeName,
+          outputTypeName: getFinalReturnTypeName(a.callSignature),
         })),
       ),
     )
@@ -371,6 +388,7 @@ const makeParser = ({
         Maybe.map((info) => ({
           ...a,
           typeName: info.firstParamType.typeName,
+          outputTypeName: getFinalReturnTypeName(a.callSignature),
         })),
       ),
     )
@@ -392,20 +410,34 @@ const makeParser = ({
           ),
         ),
         Maybe.filter((self) =>
-          self.typeName.startsWith(namespaceFromModule(a.module)),
+          isExportedInFluentNamespace(self.type, self.typeName),
         ),
         Maybe.map((self) => ({
           ...a,
           typeName: self.typeName,
+          outputTypeName: getFinalReturnTypeName(a.callSignature),
         })),
       ),
     )
 
     // Constructors
-    const statics = [...staticByName, ...callables].map((a) => ({
-      ...a,
-      typeName: namespaceFromModule(a.module),
-    }))
+    const statics = [...staticByName, ...callables].map((a) =>
+      pipe(
+        getFinalReturnType(a.callSignature),
+        getTypeInformation,
+        Maybe.filter((a) => isExportedInFluentNamespace(a.type, a.typeName)),
+        Maybe.fold(
+          () => ({
+            ...a,
+            typeName: namespaceFromModule(a.module),
+          }),
+          (self) => ({
+            ...a,
+            typeName: self.typeName,
+          }),
+        ),
+      ),
+    )
 
     const types = [...classes, ...interfaces, ...typeAliases]
 

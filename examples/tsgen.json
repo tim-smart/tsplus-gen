@@ -3,7 +3,8 @@
     "packageName": "@tsplus-example/core",
     "rootDir": "examples",
     "tsconfig": "tsconfig.json",
-    "staticPrefixes": ["from", "make"]
+    "staticPrefixes": ["from", "make"],
+    "fluentNamespaces": ["tsplus-example/core", "ReadonlyArray"]
   },
   "namespaces": [
     {

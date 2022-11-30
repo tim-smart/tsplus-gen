@@ -89,6 +89,7 @@ type DefinitionTuple = readonly [module: string, definition: Definition]
 interface ParserOutput {
   kind: DefinitionKind
   typeName: string
+  outputTypeName?: string
   module: string
   symbol: Symbol
 }
@@ -153,7 +154,9 @@ const make = (
             ? [
                 {
                   kind: "static",
-                  typeName: `${a.typeName}${config?.staticSuffix || ""}`,
+                  typeName: `${a.outputTypeName ?? a.typeName}${
+                    config?.staticSuffix || ""
+                  }`,
                   name: a.symbol.name,
                 } as Extension,
               ]
