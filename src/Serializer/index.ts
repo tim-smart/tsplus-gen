@@ -208,20 +208,20 @@ const additionalExtensionsRecord = (tuples: AdditionalExtensions) =>
   tuples
     .map(extensionFromTuple)
     .reduce<Record<string, Record<string, Extension[]>>>(
-      (acc, { definitionName, extension }) => {
-        if (!acc[extension.typeName]) {
+      (acc, { targetTypeName, definitionName, extension }) => {
+        if (!acc[targetTypeName]) {
           acc = {
             ...acc,
-            [extension.typeName]: {},
+            [targetTypeName]: {},
           }
         }
 
-        const prev = acc[extension.typeName][definitionName] ?? []
+        const prev = acc[targetTypeName][definitionName] ?? []
 
         return {
           ...acc,
-          [extension.typeName]: {
-            ...acc[extension.typeName],
+          [targetTypeName]: {
+            ...acc[targetTypeName],
             [definitionName]: [...prev, extension],
           },
         }
@@ -244,6 +244,7 @@ const extensionFromTuple = ([
   }
 
   return {
+    targetTypeName: typeName,
     definitionName,
     extension,
   }
