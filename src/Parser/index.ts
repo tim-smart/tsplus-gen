@@ -163,6 +163,8 @@ const makeParser = ({
         return false
       }
 
+      if (typeName === symbol.name) return true
+
       return (
         symbol
           .getDeclarations()
