@@ -78,7 +78,7 @@ type Definition = z.infer<typeof Definition>
 
 const ExtensionTuple = z.union([
   z.tuple([z.string().regex(/^.*#.*$/), ExtensionKind, z.string()]),
-  z.tuple([z.string().regex(/^.*#.*$/), ExtensionKind, z.string(), z.number()]),
+  z.tuple([z.string().regex(/^.*#.*$/), ExtensionKind, z.string(), z.string()]),
 ])
 type ExtensionTuple = z.infer<typeof ExtensionTuple>
 
@@ -229,14 +229,18 @@ const additionalExtensionsRecord = (tuples: AdditionalExtensions) =>
       {},
     )
 
-const extensionFromTuple = ([target, kind, name, priority]: ExtensionTuple) => {
+const extensionFromTuple = ([
+  target,
+  kind,
+  name,
+  targetTypeName,
+]: ExtensionTuple) => {
   const [typeName, definitionName] = target.split("#")
 
   const extension: Extension = {
-    typeName,
+    typeName: targetTypeName ?? typeName,
     kind,
     name,
-    priority: priority?.toString(),
   }
 
   return {
