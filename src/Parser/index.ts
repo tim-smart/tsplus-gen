@@ -18,7 +18,6 @@ export const Config = z.object({
   rootDir: z.string(),
   exclude: z.array(z.string()).optional(),
   staticPrefixes: z.array(z.string()).optional(),
-  getterNamespaces: z.array(z.string()).optional(),
   fluentNamespaces: z.array(z.string()).optional(),
 })
 export type Config = z.infer<typeof Config>
@@ -110,8 +109,6 @@ const makeParser = ({
         Maybe.map((a) => a.typeName),
         Maybe.toUndefined,
       )
-
-    const exported = sourceFiles.flatMap(exportsFromSourceFile)
 
     const getFirstParamType = (signature: Ts.Signature) =>
       pipe(
@@ -283,6 +280,8 @@ const makeParser = ({
         }, {}),
         (a) => Object.values(a),
       )
+
+    const exported = sourceFiles.flatMap(exportsFromSourceFile)
 
     const exportedWithDeclarations = pipe(
       exported
