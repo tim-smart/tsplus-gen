@@ -203,6 +203,7 @@ const makeParser = ({
       pipe(getterTypeInformation(signature), Maybe.isSome)
 
     const isPipeableReturnType = (type: Ts.Type) =>
+      !nonFunctionReturnType(type) &&
       type.getCallSignatures().some(isPipeableSignature)
 
     const getSourceFileFromSymbol = (symbol: Ts.Symbol) =>
@@ -424,7 +425,9 @@ const makeParser = ({
       pipe(
         getFinalReturnType(a.callSignature),
         getTypeInformation,
-        Maybe.filter((a) => isExportedInFluentNamespace(a.type, a.typeName)),
+        Maybe.filter((type) =>
+          isExportedInFluentNamespace(type.type, type.typeName),
+        ),
         Maybe.fold(
           () => ({
             ...a,
