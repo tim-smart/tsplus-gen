@@ -202,9 +202,21 @@ const makeParser = ({
     const isPipeableSignature = (signature: Ts.Signature) =>
       pipe(getterTypeInformation(signature), Maybe.isSome)
 
-    const isPipeableReturnType = (type: Ts.Type) =>
-      !nonFunctionReturnType(type) &&
-      type.getCallSignatures().some(isPipeableSignature)
+    const allSignatures = (type: Ts.Type): Ts.Signature[] => {
+      if (nonFunctionReturnType(type)) {
+        return []
+      }
+
+      return type
+        .getCallSignatures()
+        .flatMap((signature) => [
+          signature,
+          ...allSignatures(signature.getReturnType()),
+        ])
+    }
+
+    const pipeableSignature = (type: Ts.Type) =>
+      Maybe.fromNullable(allSignatures(type).find(isPipeableSignature))
 
     const getSourceFileFromSymbol = (symbol: Ts.Symbol) =>
       pipe(
@@ -332,19 +344,33 @@ const makeParser = ({
     const typeAliases = filterExports("type", Ts.isTypeAliasDeclaration)
 
     let callables = [...variables, ...functions]
-      .flatMap((a) =>
-        a.type
-          .getCallSignatures()
-          .slice(0, 1)
-          .map((callSignature) => ({
-            ...a,
-            callSignature,
-          })),
-      )
+      .filter((a) => !nonFunctionReturnType(a.type))
+      .map((a) => ({
+        ...a,
+        callSignature: a.type.getCallSignatures()![0],
+      }))
       .map((a) => ({
         ...a,
         returnType: getReturnType(a.callSignature),
       }))
+
+    const constants = variables
+      .filter((a) => nonFunctionReturnType(a.type))
+      .flatMap((a) =>
+        pipe(
+          getTypeInformation(a.type),
+          Maybe.fold(
+            () => [],
+            (self) => [
+              {
+                ...a,
+                typeName: self.typeName,
+              },
+            ],
+          ),
+        ),
+      )
+      .filter((a) => isExportedInFluentNamespace(a.type, a.typeName))
 
     type Callable = typeof callables[number]
 
@@ -395,12 +421,10 @@ const makeParser = ({
 
     const pipeables = extractCallables((a) =>
       pipe(
-        Maybe.fromPredicate(a, (a) => isPipeableReturnType(a.returnType)),
-        Maybe.map((a) => ({
+        pipeableSignature(a.returnType),
+        Maybe.map((returnCallSignature) => ({
           ...a,
-          returnCallSignature: a.returnType
-            .getCallSignatures()
-            .find(isPipeableSignature)!,
+          returnCallSignature,
         })),
         Maybe.flatMap((a) =>
           pipe(
@@ -421,7 +445,7 @@ const makeParser = ({
     )
 
     // Constructors
-    const statics = [...staticByName, ...callables].map((a) =>
+    const staticCallables = [...staticByName, ...callables].map((a) =>
       pipe(
         getFinalReturnType(a.callSignature),
         getTypeInformation,
@@ -440,6 +464,7 @@ const makeParser = ({
         ),
       ),
     )
+    const statics = [...staticCallables, ...constants]
 
     const types = [...classes, ...interfaces, ...typeAliases]
 
