@@ -301,9 +301,6 @@ const makeParser = ({
             sourceFile: node.getSourceFile(),
           })),
         )
-        .filter(
-          (a) => !a.symbol.getJsDocTags().some((a) => a.name === "tsplus"),
-        )
         .map(({ symbol, sourceFile, node }) => {
           const type = checker.getTypeOfSymbolAtLocation(symbol, node)
           const module = getModuleFromSourceFile(sourceFile)
