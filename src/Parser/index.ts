@@ -144,19 +144,28 @@ const makeParser = ({
     const fluentTypeInformation = (signature: Ts.Signature) =>
       pipe(
         Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
-        Maybe.filter((signature) =>
-          nonFunctionReturnType(signature.getReturnType()),
-        ),
         Maybe.flatMap(() =>
           Maybe.struct({
-            firstParamType: getFirstParamType(signature),
-            returnType: pipe(getReturnType(signature), getTypeInformation),
+            firstParamType: pipe(
+              getFirstParamType(signature),
+              Maybe.filter((a) =>
+                isExportedInFluentNamespace(a.type, a.typeName),
+              ),
+            ),
+            returnType: pipe(
+              getFinalReturnType(signature),
+              getTypeInformation,
+              Maybe.some,
+            ),
           }),
         ),
-        Maybe.filter((a) =>
-          isExportedInFluentNamespace(
-            a.firstParamType.type,
-            a.firstParamType.typeName,
+        Maybe.filter(({ firstParamType, returnType }) =>
+          pipe(
+            returnType,
+            Maybe.fold(
+              () => true,
+              (a) => a.typeName === firstParamType.typeName,
+            ),
           ),
         ),
       )
@@ -202,21 +211,8 @@ const makeParser = ({
     const isPipeableSignature = (signature: Ts.Signature) =>
       pipe(getterTypeInformation(signature), Maybe.isSome)
 
-    const allSignatures = (type: Ts.Type): Ts.Signature[] => {
-      if (nonFunctionReturnType(type)) {
-        return []
-      }
-
-      return type
-        .getCallSignatures()
-        .flatMap((signature) => [
-          signature,
-          ...allSignatures(signature.getReturnType()),
-        ])
-    }
-
     const pipeableSignature = (type: Ts.Type) =>
-      Maybe.fromNullable(allSignatures(type).find(isPipeableSignature))
+      Maybe.fromNullable(type.getCallSignatures().find(isPipeableSignature))
 
     const getSourceFileFromSymbol = (symbol: Ts.Symbol) =>
       pipe(
