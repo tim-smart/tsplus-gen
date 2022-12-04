@@ -404,17 +404,6 @@ const makeParser = ({
       ),
     )
 
-    const fluents = extractCallables((a) =>
-      pipe(
-        fluentTypeInformation(a.callSignature),
-        Maybe.map((info) => ({
-          ...a,
-          typeName: info.firstParamType.typeName,
-          outputTypeName: getFinalReturnTypeName(a.callSignature),
-        })),
-      ),
-    )
-
     const pipeables = extractCallables((a) =>
       pipe(
         pipeableSignature(a.returnType),
@@ -435,6 +424,17 @@ const makeParser = ({
         Maybe.map((self) => ({
           ...a,
           typeName: self.typeName,
+          outputTypeName: getFinalReturnTypeName(a.callSignature),
+        })),
+      ),
+    )
+
+    const fluents = extractCallables((a) =>
+      pipe(
+        fluentTypeInformation(a.callSignature),
+        Maybe.map((info) => ({
+          ...a,
+          typeName: info.firstParamType.typeName,
           outputTypeName: getFinalReturnTypeName(a.callSignature),
         })),
       ),
