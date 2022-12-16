@@ -454,8 +454,12 @@ const makeParser = ({
       pipe(
         getFinalReturnType(a.callSignature),
         getTypeInformation,
-        Maybe.filter((type) =>
-          namespaceFromModule(a.module).startsWith(type.typeName.split(".")[0]),
+        Maybe.filter(
+          (type) =>
+            isExportedInFluentNamespace(type.type, type.typeName) &&
+            namespaceFromModule(a.module).startsWith(
+              type.typeName.split(".")[0],
+            ),
         ),
         Maybe.fold(
           () => ({
