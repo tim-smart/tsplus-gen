@@ -19,6 +19,7 @@ export const Config = z.object({
   exclude: z.array(z.string()).optional(),
   staticPrefixes: z.array(z.string()).optional(),
   fluentNamespaces: z.array(z.string()).optional(),
+  namespaceAliases: z.record(z.string()).optional(),
 })
 export type Config = z.infer<typeof Config>
 
@@ -61,6 +62,7 @@ const makeParser = ({
   exclude = [],
   staticPrefixes = [],
   fluentNamespaces = [],
+  namespaceAliases = {},
 }: Config) =>
   Effect.gen(function* ($) {
     const baseDir = Path.join(process.cwd(), rootDir)
@@ -232,10 +234,12 @@ const makeParser = ({
       pipe(getModuleFromSourceFile(file), namespaceFromModule)
 
     const namespaceFromModule = (path: string) =>
-      path
-        .replace(/\/definition\/.*/, "")
-        .replace(/^@/, "")
-        .replace(/\/index$/, "")
+      maybeRenameNamespace(
+        path
+          .replace(/\/definition\/.*/, "")
+          .replace(/^@/, "")
+          .replace(/\/index$/, ""),
+      )
 
     const getExternalModulePath = (file: string) =>
       file.match(/.*\/node_modules\/(.*)/)![1]
@@ -260,6 +264,9 @@ const makeParser = ({
         })),
       )
 
+    const maybeRenameNamespace = (namespace: string) =>
+      namespaceAliases[namespace] ?? namespace
+
     const getTargetString = (sourceFile: Ts.SourceFile, name: string) => {
       const namespace = getNamespaceFromSourceFile(sourceFile)
       const baseName = Path.basename(namespace)
@@ -270,12 +277,14 @@ const makeParser = ({
       } else if (name === baseName) {
         return namespace
       } else if (name.startsWith(baseName)) {
-        return `${namespace}.${name.slice(baseName.length)}`
+        return `${maybeRenameNamespace(namespace)}.${name.slice(
+          baseName.length,
+        )}`
       } else if (namespaceWithoutSlashes.endsWith(name)) {
         return namespace
       }
 
-      return `${namespace}.${name}`
+      return `${maybeRenameNamespace(namespace)}.${name}`
     }
 
     const uniqueNodesForSymbol = (s: Ts.Symbol) =>
@@ -446,7 +455,9 @@ const makeParser = ({
         getFinalReturnType(a.callSignature),
         getTypeInformation,
         Maybe.filter((type) =>
-          isExportedInFluentNamespace(type.type, type.typeName),
+          exportsFromSourceFile(a.sourceFile).some(
+            (e) => e.symbol.name === type.name,
+          ),
         ),
         Maybe.fold(
           () => ({
