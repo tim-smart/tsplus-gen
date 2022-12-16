@@ -40,7 +40,7 @@ const createProgram = (tsconfig: string) =>
     ),
     Either.flatMap((a) =>
       Either.fromNullable(
-        Ts.readConfigFile(a, Ts.sys.readFile),
+        Ts.readConfigFile(a, Ts.sys.readFile).config,
         () => new CreateProgramError("could not read config file"),
       ),
     ),
