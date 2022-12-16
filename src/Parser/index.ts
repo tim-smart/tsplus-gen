@@ -455,9 +455,7 @@ const makeParser = ({
         getFinalReturnType(a.callSignature),
         getTypeInformation,
         Maybe.filter((type) =>
-          exportsFromSourceFile(a.sourceFile).some(
-            (e) => e.symbol.name === type.name,
-          ),
+          namespaceFromModule(a.module).startsWith(type.typeName.split(".")[0]),
         ),
         Maybe.fold(
           () => ({
