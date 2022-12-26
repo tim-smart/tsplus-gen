@@ -145,7 +145,7 @@ const makeParser = ({
 
     const fluentTypeInformation = (signature: Ts.Signature) =>
       pipe(
-        Maybe.fromPredicate(signature, (a) => a.getParameters().length > 1),
+        Maybe.fromPredicate(signature, (a) => a.getParameters().length >= 1),
         Maybe.flatMap(() =>
           Maybe.struct({
             firstParamType: pipe(
@@ -405,6 +405,11 @@ const makeParser = ({
     const getters = extractCallables((a) =>
       pipe(
         getterTypeInformation(a.callSignature),
+        Maybe.filter(
+          () =>
+            (a.callSignature.getReturnType().flags & Ts.TypeFlags.Boolean) ===
+            0,
+        ),
         Maybe.map((self) => ({
           ...a,
           typeName: self.firstParamType.typeName,
