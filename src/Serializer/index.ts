@@ -35,11 +35,12 @@ const Extension = z.object({
 type Extension = z.infer<typeof Extension>
 
 const KindConfig = z.object({
-  include: z.boolean(),
-  includeCompanion: z.boolean().optional(),
+  include: z.boolean().default(true),
+  includeCompanion: z.boolean().default(false),
   companionSuffix: z.string().optional(),
-  includeStatic: z.boolean().optional(),
+  includeStatic: z.boolean().default(false),
   staticSuffix: z.string().optional(),
+  staticUsesOutputType: z.boolean().default(false),
   priority: z.number().optional(),
 })
 type KindConfig = z.infer<typeof KindConfig>
@@ -131,13 +132,18 @@ const make = (
     ns: Namespace,
     allowStatic: boolean,
   ): DefinitionTuple => {
-    const config = ns[kind]
-    const kindPriority = config?.priority?.toString()
+    const config: KindConfig = ns[kind] ?? {
+      include: true,
+      includeCompanion: false,
+      includeStatic: false,
+      staticUsesOutputType: false,
+    }
+    const kindPriority = config.priority?.toString()
     const nsPriority = ns.priority?.toString()
     const modulePriority = findModulePriority(ns, a.module)?.toString()
     const priority = kindPriority ?? nsPriority ?? modulePriority
 
-    const includeStatic = allowStatic && (config?.includeStatic ?? false)
+    const includeStatic = allowStatic && config.includeStatic
 
     return [
       `${a.module}${ns.moduleFileExtension || ""}`,
@@ -148,7 +154,7 @@ const make = (
           {
             kind,
             typeName: `${a.typeName}${
-              kind === "static" && config?.staticSuffix
+              kind === "static" && config.staticSuffix
                 ? config.staticSuffix
                 : ""
             }`,
@@ -159,14 +165,16 @@ const make = (
             ? [
                 {
                   kind: "static",
-                  typeName: `${a.outputTypeName ?? a.typeName}${
-                    config?.staticSuffix || ""
-                  }`,
+                  typeName: `${
+                    config.staticUsesOutputType
+                      ? a.outputTypeName ?? a.typeName
+                      : a.typeName
+                  }${config?.staticSuffix || ""}`,
                   name: a.symbol.name,
                 } as Extension,
               ]
             : []),
-          ...(config?.includeCompanion
+          ...(config.includeCompanion
             ? [
                 {
                   kind: "companion",
