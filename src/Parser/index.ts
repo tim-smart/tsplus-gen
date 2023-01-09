@@ -238,7 +238,8 @@ const makeParser = ({
         path
           .replace(/\/definition\/.*/, "")
           .replace(/^@/, "")
-          .replace(/\/index$/, ""),
+          .replace(/\/index$/, "")
+          .replace(/\/_?(src|dist)\//, "/"),
       )
 
     const getExternalModulePath = (file: string) =>
