@@ -13,6 +13,7 @@ import { z } from "zod"
 import Minimatch from "minimatch"
 
 export const ModuleConfig = z.object({
+  ignore: z.boolean().default(false),
   staticPrefixes: z.array(z.string()).default([]),
   fluentNamespaces: z.array(z.string()).default([]),
 })
@@ -360,7 +361,14 @@ const makeParser = ({
           }
 
           return [`${module}.${symbol.name}.${node.kind}`, exported] as const
-        }),
+        })
+        .filter(([, { module }]) =>
+          pipe(
+            findModuleConfig(module),
+            Maybe.filter((a) => a.ignore),
+            Maybe.isNone,
+          ),
+        ),
       (a) => Object.fromEntries(a),
       (a) => Object.values(a),
     )

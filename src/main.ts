@@ -22,6 +22,7 @@ const main = pipe(
     const SerializerLive = Serializer.makeLayer(
       config.namespaces,
       config.additionalExtensions,
+      config.mergeWith,
     )
 
     return pipe(

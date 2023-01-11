@@ -86,6 +86,9 @@ type ExtensionTuple = z.infer<typeof ExtensionTuple>
 export const AdditionalExtensions = z.array(ExtensionTuple)
 export type AdditionalExtensions = z.infer<typeof AdditionalExtensions>
 
+export const JsonAnnotations = z.record(z.array(Definition))
+export type JsonAnnotations = z.infer<typeof JsonAnnotations>
+
 type DefinitionTuple = readonly [module: string, definition: Definition]
 
 interface ParserOutput {
@@ -98,7 +101,8 @@ interface ParserOutput {
 
 const make = (
   namespaces: NamespaceList,
-  additionalExtensions: AdditionalExtensions = [],
+  additionalExtensions: AdditionalExtensions,
+  mergeWith: JsonAnnotations[],
 ) => {
   const additional = additionalExtensionsRecord(additionalExtensions)
 
@@ -193,6 +197,13 @@ const make = (
   const pipeables = makeDefinitions("pipeable", Parser.pipeables)
   const statics = makeDefinitions("static", Parser.statics, false)
   const types = makeDefinitions("type", Parser.types, false)
+  const mergeWithFlat = Stream.fromCollection(
+    mergeWith.flatMap((definitions) =>
+      Object.entries(definitions).flatMap(([module, definitions]) =>
+        definitions.map((d): DefinitionTuple => [module, d]),
+      ),
+    ),
+  )
 
   const definitions = pipe(
     fluents,
@@ -200,6 +211,7 @@ const make = (
     Stream.merge(pipeables),
     Stream.merge(statics),
     Stream.merge(types),
+    Stream.merge(mergeWithFlat),
     Stream.runFold(
       {} as Record<string, Definition[]>,
       (acc, [namespace, definition]) => ({
@@ -283,8 +295,11 @@ const findModulePriority = (
 
 export interface Serializer extends ReturnType<typeof make> {}
 export const Serializer = Tag.Tag<Serializer>()
-export const makeLayer = (a: NamespaceList, b?: AdditionalExtensions) =>
-  Layer.fromValue(Serializer, () => make(a, b))
+export const makeLayer = (
+  a: NamespaceList,
+  b: AdditionalExtensions,
+  c: JsonAnnotations[],
+) => Layer.fromValue(Serializer, () => make(a, b, c))
 
 export const definitions = Effect.serviceWithEffect(
   Serializer,
