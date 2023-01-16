@@ -260,7 +260,7 @@ const extensionFromTuple = ([
   const extension: Extension = {
     typeName: targetTypeName ?? typeName,
     kind,
-    name,
+    name: name ? name : undefined,
   }
 
   return {
