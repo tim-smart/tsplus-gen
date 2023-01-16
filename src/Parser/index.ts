@@ -273,7 +273,7 @@ const makeParser = ({
         path
           .replace(/\/definition\/.*/, "")
           .replace(/^@/, "")
-          .replace(/\/index$/, "/")
+          .replace(/\/index$/, "")
           .replace(/\/_?(src|dist)\//, "/"),
       )
 
@@ -320,7 +320,7 @@ const makeParser = ({
         return namespace
       }
 
-      return `${maybeRenameNamespace(namespace)}.${name}`
+      return `${maybeRenameNamespace(namespace)}/${name}`
     }
 
     const uniqueNodesForSymbol = (s: Ts.Symbol) =>
