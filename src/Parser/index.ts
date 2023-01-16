@@ -320,7 +320,7 @@ const makeParser = ({
         return namespace
       }
 
-      return `${maybeRenameNamespace(namespace)}.${name}`
+      return `${maybeRenameNamespace(namespace)}/${name}`
     }
 
     const uniqueNodesForSymbol = (s: Ts.Symbol) =>
@@ -420,7 +420,7 @@ const makeParser = ({
       )
       .filter((a) => isExportedInFluentNamespace(a.module, a.type, a.typeName))
 
-    type Callable = typeof callables[number]
+    type Callable = (typeof callables)[number]
 
     const extractCallables = <A>(f: (a: Callable) => Maybe.Maybe<A>): A[] => {
       const [results, newCallables] = callables.reduce<[A[], Callable[]]>(
