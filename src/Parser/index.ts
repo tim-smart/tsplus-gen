@@ -273,7 +273,7 @@ const makeParser = ({
         path
           .replace(/\/definition\/.*/, "")
           .replace(/^@/, "")
-          .replace(/\/index$/, "")
+          .replace(/\/index$/, "/")
           .replace(/\/_?(src|dist)\//, "/"),
       )
 
@@ -420,7 +420,7 @@ const makeParser = ({
       )
       .filter((a) => isExportedInFluentNamespace(a.module, a.type, a.typeName))
 
-    type Callable = typeof callables[number]
+    type Callable = (typeof callables)[number]
 
     const extractCallables = <A>(f: (a: Callable) => Maybe.Maybe<A>): A[] => {
       const [results, newCallables] = callables.reduce<[A[], Callable[]]>(
