@@ -155,6 +155,7 @@ const make = (
         definitionName: a.symbol.name,
         definitionKind: a.kind,
         extensions: [
+          ...(additional[a.typeName]?.[a.symbol.name] ?? []),
           {
             kind,
             typeName: `${a.typeName}${
@@ -186,7 +187,6 @@ const make = (
                 } as Extension,
               ]
             : []),
-          ...(additional[a.typeName]?.[a.symbol.name] ?? []),
         ],
       },
     ]
