@@ -165,7 +165,12 @@ const makeParser = ({
 
     const fluentTypeInformation = (module: string, signature: Ts.Signature) =>
       pipe(
-        Maybe.fromPredicate(signature, (a) => a.getParameters().length >= 1),
+        Maybe.fromPredicate(signature, (a) => {
+          const len = a.getParameters().length
+          return (
+            len > 1 || (len === 1 && isBooleanish(signature.getReturnType()))
+          )
+        }),
         Maybe.flatMap(() =>
           Maybe.struct({
             firstParamType: pipe(
@@ -299,6 +304,15 @@ const makeParser = ({
           typeName: getTargetString(sourceFile, name),
         })),
       )
+
+    // const flagNames = (flags: any, bitfield: number) =>
+    //   Object.entries(flags)
+    //     .filter(
+    //       ([, value]) => typeof value === "number" && (bitfield & value) !== 0,
+    //     )
+    //     .map(([key]) => key)
+
+    const isBooleanish = (a: Ts.Type) => (a.flags & Ts.TypeFlags.Boolean) !== 0
 
     const maybeRenameNamespace = (namespace: string) =>
       namespaceAliases[namespace] ?? namespace
@@ -448,11 +462,7 @@ const makeParser = ({
     const getters = extractCallables((a) =>
       pipe(
         getterTypeInformation(a.module, a.callSignature),
-        Maybe.filter(
-          () =>
-            (a.callSignature.getReturnType().flags & Ts.TypeFlags.Boolean) ===
-            0,
-        ),
+        Maybe.filter(() => !isBooleanish(a.callSignature.getReturnType())),
         Maybe.map((self) => ({
           ...a,
           typeName: self.firstParamType.typeName,
