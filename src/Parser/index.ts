@@ -181,13 +181,13 @@ const makeParser = ({
             ),
           }),
         ),
-        Maybe.filter(({ firstParamType, returnType }) =>
+        Maybe.filter(({ returnType }) =>
           pipe(
             returnType,
-            Maybe.fold(
-              () => true,
-              (a) => a.typeName === firstParamType.typeName,
+            Maybe.map((a) =>
+              isExportedInFluentNamespace(module, a.type, a.typeName),
             ),
+            Maybe.getOrElse(() => true),
           ),
         ),
       )
@@ -420,7 +420,7 @@ const makeParser = ({
       )
       .filter((a) => isExportedInFluentNamespace(a.module, a.type, a.typeName))
 
-    type Callable = (typeof callables)[number]
+    type Callable = typeof callables[number]
 
     const extractCallables = <A>(f: (a: Callable) => Maybe.Maybe<A>): A[] => {
       const [results, newCallables] = callables.reduce<[A[], Callable[]]>(
