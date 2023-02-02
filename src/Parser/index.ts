@@ -406,7 +406,7 @@ const makeParser = ({
     const typeAliases = filterExports("type", Ts.isTypeAliasDeclaration)
 
     let callables = [...variables, ...functions]
-      .filter((a) => !nonFunctionReturnType(a.type))
+      .filter((a) => a.type.getCallSignatures()?.length > 0)
       .map((a) => ({
         ...a,
         callSignature: a.type.getCallSignatures()![0],
