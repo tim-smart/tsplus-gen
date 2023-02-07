@@ -168,7 +168,9 @@ const makeParser = ({
         Maybe.fromPredicate(signature, (a) => {
           const len = a.getParameters().length
           return (
-            len > 1 || (len === 1 && isBooleanish(signature.getReturnType()))
+            (len > 1 ||
+              (len === 1 && isBooleanish(signature.getReturnType()))) &&
+            nonFunctionReturnType(signature.getReturnType())
           )
         }),
         Maybe.flatMap(() =>
@@ -185,15 +187,6 @@ const makeParser = ({
               Maybe.some,
             ),
           }),
-        ),
-        Maybe.filter(({ returnType }) =>
-          pipe(
-            returnType,
-            Maybe.map((a) =>
-              isExportedInFluentNamespace(module, a.type, a.typeName),
-            ),
-            Maybe.getOrElse(() => true),
-          ),
         ),
       )
 
