@@ -1,6 +1,6 @@
 {
   "name": "tsplus-gen",
-  "version": "0.2.28",
+  "version": "0.2.29",
   "type": "module",
   "packageManager": "yarn@3.3.0",
   "publishConfig": {
