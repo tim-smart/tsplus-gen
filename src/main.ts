@@ -31,6 +31,14 @@ const main = pipe(
       Effect.provideSomeLayer(SerializerLive),
     )
   }),
+  Effect.map(root =>
+    Object.keys(root)
+      .sort((a, b) => a.localeCompare(b))
+      .reduce((acc, key) => ({
+        ...acc,
+        [key]: root[key].sort((a, b) => a.definitionName.localeCompare(b.definitionName))
+      }), {})
+  ),
   Effect.tap((a) =>
     pipe(
       outputFile,
