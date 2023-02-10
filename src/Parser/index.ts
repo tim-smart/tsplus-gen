@@ -400,10 +400,15 @@ const makeParser = ({
 
     let callables = [...variables, ...functions]
       .filter((a) => a.type.getCallSignatures()?.length > 0)
-      .map((a) => ({
-        ...a,
-        callSignature: a.type.getCallSignatures()![0],
-      }))
+      .map((a) => {
+        const signatures = a.type.getCallSignatures()!
+        const length = signatures.length
+
+        return {
+          ...a,
+          callSignature: signatures[length - 1],
+        }
+      })
       .map((a) => ({
         ...a,
         returnType: getReturnType(a.callSignature),
