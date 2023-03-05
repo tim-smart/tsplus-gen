@@ -132,7 +132,7 @@ const make = (
 
   const makeDefinitionTuple = (
     kind: ExtensionKindBasic,
-    a: ParserOutput,
+    def: ParserOutput,
     ns: Namespace,
     allowStatic: boolean,
   ): DefinitionTuple => {
@@ -144,26 +144,28 @@ const make = (
     }
     const kindPriority = config.priority?.toString()
     const nsPriority = ns.priority?.toString()
-    const modulePriority = findModulePriority(ns, a.module)?.toString()
+    const modulePriority = findModulePriority(ns, def.module)?.toString()
     const priority = kindPriority ?? nsPriority ?? modulePriority
 
     const includeStatic = allowStatic && config.includeStatic
 
     return [
-      `${a.module}${ns.moduleFileExtension || ""}`,
+      `${def.module}${ns.moduleFileExtension || ""}`,
       {
-        definitionName: a.symbol.name,
-        definitionKind: a.kind,
+        definitionName: def.symbol.name,
+        definitionKind: def.kind,
         extensions: [
-          ...(additional[a.typeName]?.[a.symbol.name] ?? []),
+          ...(additional[def.module]?.[def.symbol.name] ??
+            additional[def.typeName]?.[def.symbol.name] ??
+            []),
           {
             kind,
-            typeName: `${a.typeName}${
+            typeName: `${def.typeName}${
               kind === "static" && config.staticSuffix
                 ? config.staticSuffix
                 : ""
             }`,
-            name: kind !== "type" ? a.symbol.name : undefined,
+            name: kind !== "type" ? def.symbol.name : undefined,
             priority,
           },
           ...(includeStatic
@@ -172,10 +174,10 @@ const make = (
                   kind: "static",
                   typeName: `${
                     config.staticUsesOutputType
-                      ? a.outputTypeName ?? a.typeName
-                      : a.typeName
+                      ? def.outputTypeName ?? def.typeName
+                      : def.typeName
                   }${config?.staticSuffix || ""}`,
-                  name: a.symbol.name,
+                  name: def.symbol.name,
                 } as Extension,
               ]
             : []),
@@ -183,7 +185,7 @@ const make = (
             ? [
                 {
                   kind: "companion",
-                  typeName: `${a.typeName}${config.companionSuffix ?? ""}`,
+                  typeName: `${def.typeName}${config.companionSuffix ?? ""}`,
                 } as Extension,
               ]
             : []),
